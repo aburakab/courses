@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Git Visualizer — Commits, HEAD & Branches</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* -------- Design tokens -------- */
+  :root {
+    --bg:              #0b0f16;
+    --bg-panel:        #11161f;
+    --bg-panel-soft:   #161c27;
+    --border:          #222b3a;
+    --text:            #e8eef7;
+    --text-muted:      #8a94a6;
+    --text-dim:        #5b6578;
+
+    --main:            #f59e0b;   /* amber — main branch */
+    --main-glow:       #f59e0b55;
+    --feature:         #22d3ee;   /* cyan — feature branch */
+    --feature-glow:    #22d3ee55;
+    --merge:           #a78bfa;   /* purple — merge commit */
+    --merge-glow:      #a78bfa55;
+    --head:            #f472b6;   /* pink — HEAD pointer */
+    --head-glow:       #f472b655;
+    --line:            #3a4558;
+
+    --font-display:    'Fraunces', Georgia, serif;
+    --font-body:       'Manrope', -apple-system, sans-serif;
+    --font-mono:       'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  /* -------- Reset + body -------- */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, #1a2235 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 120%, #2a1a2e 0%, transparent 60%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 48px 20px;
+  }
+
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* -------- Header -------- */
+  header {
+    margin-bottom: 40px;
+    text-align: center;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--main);
+    margin-bottom: 14px;
+    display: inline-block;
+    padding: 6px 14px;
+    border: 1px solid var(--main);
+    border-radius: 100px;
+    background: var(--main-glow);
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(32px, 5vw, 52px);
+    line-height: 1.05;
+    margin: 0 0 14px;
+    letter-spacing: -0.02em;
+  }
+  h1 em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--main);
+  }
+  header p {
+    color: var(--text-muted);
+    font-size: 17px;
+    margin: 0 auto;
+    max-width: 600px;
+  }
+
+  /* -------- Graph panel -------- */
+  .graph-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 10px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .graph-panel::before {
+    /* subtle grid pattern */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse at center, black 40%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 75%);
+    opacity: 0.25;
+    pointer-events: none;
+  }
+
+  .git-graph {
+    display: block;
+    width: 100%;
+    height: auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* -------- SVG elements -------- */
+  .commit-group {
+    transition: transform 0.65s cubic-bezier(0.34, 1.2, 0.64, 1);
+  }
+  .commit-group.entering {
+    animation: pop-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes pop-in {
+    0%   { transform: scale(0); opacity: 0; }
+    60%  { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .commit-circle {
+    stroke-width: 2.5;
+    transition: filter 0.4s ease;
+  }
+  .commit-circle.main    { fill: #1a1308; stroke: var(--main); }
+  .commit-circle.feature { fill: #07202a; stroke: var(--feature); }
+  .commit-circle.merge   { fill: #1a0f2e; stroke: var(--merge); }
+
+  .commit-group.current .commit-circle {
+    filter: drop-shadow(0 0 10px currentColor);
+  }
+  .commit-group.current .commit-circle.main    { color: var(--main); }
+  .commit-group.current .commit-circle.feature { color: var(--feature); }
+  .commit-group.current .commit-circle.merge   { color: var(--merge); }
+
+  /* Ghost = rewound / conceptually undone commit — still visible, but faded */
+  .commit-group.ghost {
+    opacity: 0.35;
+  }
+  .commit-group.ghost .commit-circle {
+    stroke-dasharray: 4 3;
+    filter: none !important;
+    fill: transparent;
+  }
+  .commit-group.ghost .commit-hash {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+  .parent-line.ghost {
+    opacity: 0.2 !important;
+    stroke-dasharray: 4 3 !important;
+    animation: none !important;
+  }
+
+  .commit-hash {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    text-anchor: middle;
+    dominant-baseline: central;
+    fill: var(--text);
+    pointer-events: none;
+  }
+
+  .parent-line {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    opacity: 0.7;
+    animation: line-draw 0.45s ease-out both;
+  }
+  .parent-line.main    { stroke: var(--main); }
+  .parent-line.feature { stroke: var(--feature); }
+  .parent-line.merge   { stroke: var(--merge); }
+  @keyframes line-draw {
+    /* pathLength="1" on the element normalizes path length so a dasharray
+       of 1 spans the whole path no matter how long it actually is. */
+    from { opacity: 0;   stroke-dasharray: 1; stroke-dashoffset: 1; }
+    to   { opacity: 0.7; stroke-dasharray: 1; stroke-dashoffset: 0; }
+  }
+
+  .branch-group {
+    transition: transform 0.65s cubic-bezier(0.34, 1.2, 0.64, 1);
+  }
+  .branch-pill {
+    stroke-width: 2;
+  }
+  .branch-pill.main    { fill: #201608; stroke: var(--main); }
+  .branch-pill.feature { fill: #0a2028; stroke: var(--feature); }
+  .branch-text {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .branch-text.main    { fill: var(--main); }
+  .branch-text.feature { fill: var(--feature); }
+
+  .branch-connector {
+    stroke-width: 2;
+    stroke-dasharray: 3 3;
+    opacity: 0.5;
+  }
+  .branch-connector.main    { stroke: var(--main); }
+  .branch-connector.feature { stroke: var(--feature); }
+
+  .head-group {
+    transition: transform 0.65s cubic-bezier(0.34, 1.2, 0.64, 1);
+  }
+  .head-pill {
+    fill: #2a1020;
+    stroke: var(--head);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 8px var(--head-glow));
+  }
+  .head-text {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 12px;
+    fill: var(--head);
+    text-anchor: middle;
+    dominant-baseline: central;
+    letter-spacing: 0.1em;
+  }
+  .head-arrow {
+    stroke: var(--head);
+    stroke-width: 2;
+    fill: var(--head);
+  }
+
+  /* -------- Strategy selector -------- */
+  .strategy-selector {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .strategy-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .strategy-options {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+  }
+  .strategy-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: left;
+  }
+  .strategy-btn .strategy-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .strategy-btn .strategy-hint {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    opacity: 0.7;
+  }
+  .strategy-btn:hover {
+    border-color: var(--text-dim);
+    color: var(--text);
+    transform: translateY(-1px);
+  }
+  .strategy-btn.active {
+    background: var(--main-glow);
+    border-color: var(--main);
+    color: var(--main);
+    box-shadow: 0 0 0 1px var(--main) inset, 0 4px 14px var(--main-glow);
+  }
+  .strategy-btn.active .strategy-hint {
+    opacity: 1;
+    color: var(--main);
+  }
+
+  /* -------- Info panel (narrative) -------- */
+  .info-panel {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 24px;
+    align-items: start;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 28px 32px;
+    margin-bottom: 20px;
+  }
+
+  .step-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .step-badge .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--main);
+    box-shadow: 0 0 8px var(--main);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+  }
+
+  .info-body .command {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    margin-bottom: 14px;
+    color: var(--text);
+  }
+  .info-body .command .prompt { color: var(--feature); font-weight: 600; }
+  .info-body .command:empty { display: none; }
+
+  .info-body h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 24px;
+    margin: 4px 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .info-body p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  .info-body .highlight {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* -------- Controls -------- */
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 22px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--bg-panel-soft);
+    border-color: var(--text-dim);
+    transform: translateY(-1px);
+  }
+  .btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--main);
+    border-color: var(--main);
+    color: #1a1308;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #ffb12b;
+    border-color: #ffb12b;
+    box-shadow: 0 4px 16px var(--main-glow);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  /* -------- Legend -------- */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 20px 28px;
+    flex-wrap: wrap;
+    padding: 18px 20px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+  }
+  .legend-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid;
+  }
+  .legend-dot.main    { border-color: var(--main);    background: #1a1308; }
+  .legend-dot.feature { border-color: var(--feature); background: #07202a; }
+  .legend-dot.merge   { border-color: var(--merge);   background: #1a0f2e; }
+  .legend-head {
+    padding: 3px 8px;
+    background: #2a1020;
+    border: 1px solid var(--head);
+    border-radius: 4px;
+    color: var(--head);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  /* -------- Responsive -------- */
+  @media (max-width: 640px) {
+    body { padding: 28px 14px; }
+    .info-panel {
+      grid-template-columns: 1fr;
+      padding: 22px;
+    }
+    .info-body h2 { font-size: 20px; }
+    .btn { padding: 10px 16px; font-size: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <div class="eyebrow">Interactive Lesson</div>
+    <h1>Commits, <em>HEAD</em> &amp; Branches<br>— see how they really move.</h1>
+    <p>Step through the full life of a branch: create it, commit on it, and merge it back in. Watch how <strong>commits</strong> chain, how <strong>HEAD</strong> says "you are here," and how a <strong>branch</strong> is nothing more than a sticky note that slides forward.</p>
+  </header>
+
+  <div class="graph-panel">
+    <svg class="git-graph" viewBox="0 0 1280 440" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arrow-head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--head)" />
+        </marker>
+      </defs>
+      <g id="lines-group"></g>
+      <g id="commits-group"></g>
+      <g id="branches-group"></g>
+      <g id="head-group"></g>
+    </svg>
+  </div>
+
+  <div class="strategy-selector">
+    <div class="strategy-label">Merge strategy</div>
+    <div class="strategy-options" role="radiogroup">
+      <button class="strategy-btn active" data-strategy="merge" role="radio" aria-checked="true">
+        <span class="strategy-name">Merge commit</span>
+        <span class="strategy-hint">new commit · 2 parents</span>
+      </button>
+      <button class="strategy-btn" data-strategy="squash" role="radio" aria-checked="false">
+        <span class="strategy-name">Squash</span>
+        <span class="strategy-hint">collapse into 1 commit</span>
+      </button>
+      <button class="strategy-btn" data-strategy="rebase" role="radio" aria-checked="false">
+        <span class="strategy-name">Rebase</span>
+        <span class="strategy-hint">replay, linear history</span>
+      </button>
+      <button class="strategy-btn" data-strategy="semi-linear" role="radio" aria-checked="false">
+        <span class="strategy-name">Rebase w/ merge</span>
+        <span class="strategy-hint">semi-linear · 2 parents</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="info-panel">
+    <div class="step-badge">
+      <span class="dot"></span>
+      <span id="step-counter">STEP 1 / 8</span>
+    </div>
+    <div class="info-body">
+      <div class="command" id="command-line"></div>
+      <h2 id="step-title">—</h2>
+      <p id="step-narrative">—</p>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev-btn">← Previous</button>
+    <button class="btn btn-ghost" id="reset-btn">↻ Reset</button>
+    <button class="btn btn-primary" id="next-btn">Next →</button>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot main"></span> main commit</span>
+    <span class="legend-item"><span class="legend-dot feature"></span> feature commit</span>
+    <span class="legend-item"><span class="legend-dot merge"></span> merge commit</span>
+    <span class="legend-item"><span class="legend-head">HEAD</span> you are here</span>
+  </div>
+
+</div>
+
+<script>
+// ===================== DATA =====================
+
+// Commit identifiers (short hex hashes)
+const C = {
+  c1: 'a1b',
+  c2: 'c3d',
+  c3: 'e5f',
+  c4: '0a7',
+  c5: '4cd',
+  c6: '9be',
+  c7: '2fa',   // merge commit (merge strategy)
+  c8: '6b4',   // squash commit (squash strategy)
+  c9: 'd8e',   // rebased c4 (rebase strategy)
+  c10: 'f1a',  // rebased c5 (rebase strategy)
+  c12: '7c4',  // rebased c4 (semi-linear strategy)
+  c13: '3d5',  // rebased c5 (semi-linear strategy)
+  c14: '5e8',  // merge commit (semi-linear strategy)
+};
+
+// Fixed layout positions for every commit (same across all steps
+// so transitions look smooth when a commit appears/moves).
+// x = column index, lane = 0 (main) or 1 (feature, upper)
+const LAYOUT = {
+  [C.c1]:  { col: 0, lane: 0, color: 'main'    },
+  [C.c2]:  { col: 1, lane: 0, color: 'main'    },
+  [C.c3]:  { col: 2, lane: 0, color: 'main'    },
+  [C.c4]:  { col: 3, lane: 1, color: 'feature' },
+  [C.c5]:  { col: 4, lane: 1, color: 'feature' },
+  [C.c6]:  { col: 5, lane: 0, color: 'main'    },
+  [C.c7]:  { col: 6, lane: 0, color: 'merge'   },
+  [C.c8]:  { col: 6, lane: 0, color: 'main'    }, // squash commit lives on main
+  [C.c9]:  { col: 6, lane: 0, color: 'feature' }, // rebased, linear on main lane
+  [C.c10]: { col: 7, lane: 0, color: 'feature' },
+  [C.c12]: { col: 6, lane: 1, color: 'feature' }, // semi-linear: rebased on feature lane
+  [C.c13]: { col: 7, lane: 1, color: 'feature' }, //   so the merge bubble is visible
+  [C.c14]: { col: 8, lane: 0, color: 'merge'   }, // semi-linear merge commit
+};
+
+// Parent relationships (child -> [parents])
+const PARENTS = {
+  [C.c1]:  [],
+  [C.c2]:  [C.c1],
+  [C.c3]:  [C.c2],
+  [C.c4]:  [C.c3],
+  [C.c5]:  [C.c4],
+  [C.c6]:  [C.c3],
+  [C.c7]:  [C.c6, C.c5],    // merge commit: TWO parents
+  [C.c8]:  [C.c6],           // squash: single parent on main
+  [C.c9]:  [C.c6],           // rebased c4: parent is c6, not c3
+  [C.c10]: [C.c9],           // rebased c5: parent is rebased c4
+  [C.c12]: [C.c6],           // semi-linear rebased c4
+  [C.c13]: [C.c12],          // semi-linear rebased c5
+  [C.c14]: [C.c6, C.c13],    // semi-linear merge: two parents
+};
+
+// Coordinate math
+const COL_WIDTH  = 130;
+const COL_START  = 110;
+const LANE_MAIN_Y    = 300;
+const LANE_FEATURE_Y = 170;
+const COMMIT_RADIUS  = 26;
+
+function commitX(col)   { return COL_START + col * COL_WIDTH; }
+function commitY(lane)  { return lane === 0 ? LANE_MAIN_Y : LANE_FEATURE_Y; }
+
+// ===================== STEPS =====================
+const STEPS = [
+  {
+    title: "The starting point",
+    command: "",
+    narrative: "Three commits sit on the <span class='highlight'>main</span> branch. Each one points to its parent — the one before it. <span class='highlight'>HEAD</span> is the flag saying you are standing on main, and through main you're on the latest commit.",
+    commits: [C.c1, C.c2, C.c3],
+    branches: { main: C.c3 },
+    head: 'main',
+  },
+  {
+    title: "Create a new branch",
+    command: "git branch feature",
+    narrative: "A new sticky note appears: a branch called <span class='highlight'>feature</span>, pointing at the same commit as main. Git didn't copy any files — branches are just pointers.",
+    commits: [C.c1, C.c2, C.c3],
+    branches: { main: C.c3, feature: C.c3 },
+    head: 'main',
+  },
+  {
+    title: "Switch onto the branch",
+    command: "git checkout feature",
+    narrative: "HEAD slides from <span class='highlight'>main</span> to <span class='highlight'>feature</span>. No commits changed, no files moved — we just changed where we're standing.",
+    commits: [C.c1, C.c2, C.c3],
+    branches: { main: C.c3, feature: C.c3 },
+    head: 'feature',
+  },
+  {
+    title: "Make a commit on feature",
+    command: "git commit -m \"Add login form\"",
+    narrative: "A brand new commit is born. Its parent is the commit HEAD was on. The <span class='highlight'>feature</span> branch slides forward with us — <span class='highlight'>main</span> stays put where we left it.",
+    commits: [C.c1, C.c2, C.c3, C.c4],
+    branches: { main: C.c3, feature: C.c4 },
+    head: 'feature',
+  },
+  {
+    title: "Another commit on feature",
+    command: "git commit -m \"Wire up validation\"",
+    narrative: "Same story. A new commit, feature advances again. There are now two commits on feature that don't exist on main.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5],
+    branches: { main: C.c3, feature: C.c5 },
+    head: 'feature',
+  },
+  {
+    title: "Jump back to main",
+    command: "git checkout main",
+    narrative: "HEAD jumps back to main. Your feature work is still completely safe — the commits are still there, the branch label is still there. We just moved where we're standing.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5],
+    branches: { main: C.c3, feature: C.c5 },
+    head: 'main',
+  },
+  {
+    title: "Meanwhile, a commit on main",
+    command: "git commit -m \"Fix typo in header\"",
+    narrative: "Someone made a fix on main. Now both branches have <em>diverged</em> — each one has commits the other doesn't. This is the classic branching situation. <span class='highlight'>Pick a merge strategy below</span> to see how Git resolves it.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5, C.c6],
+    branches: { main: C.c6, feature: C.c5 },
+    head: 'main',
+  },
+];
+
+// The final step is strategy-dependent — the same divergence resolves
+// four different ways depending on what the user chooses.
+const MERGE_STEPS = {
+  merge: {
+    title: "Merge commit",
+    command: "git merge feature",
+    narrative: "Git creates a special <span class='highlight'>merge commit</span> with <span class='highlight'>TWO parents</span> — one on main, one on feature. Both streams of work are preserved, and the shape of the branch is visible in the history forever.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5, C.c6, C.c7],
+    branches: { main: C.c7, feature: C.c5 },
+    head: 'main',
+  },
+  squash: {
+    title: "Squash and merge",
+    command: "git merge --squash feature && git commit",
+    narrative: "All of feature's commits are collapsed into a <span class='highlight'>single new commit</span> on main. The original c4 and c5 still exist on the feature branch, but main's history now shows the work as <span class='highlight'>one tidy change</span>. Popular for keeping main's log clean.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5, C.c6, C.c8],
+    branches: { main: C.c8, feature: C.c5 },
+    head: 'main',
+  },
+  rebase: {
+    title: "Rebase and fast-forward",
+    command: "git rebase main  &&  git checkout main  &&  git merge --ff-only feature",
+    narrative: "Two steps in one move. First, feature's commits are <span class='highlight'>replayed on top of main</span> (brand-new IDs — the originals are abandoned). Then <span class='highlight'>main fast-forwards</span> to the new tip. Both branches end up on the same commit with a perfectly <span class='highlight'>linear history</span>, as if the branch never diverged.",
+    commits: [C.c1, C.c2, C.c3, C.c6, C.c9, C.c10],
+    branches: { main: C.c10, feature: C.c10 },
+    head: 'main',
+  },
+  'semi-linear': {
+    title: "Rebase with merge commit",
+    command: "git rebase main  &&  git merge --no-ff feature",
+    narrative: "A hybrid of rebase and merge. Feature's commits are first <span class='highlight'>replayed on top of main</span> (brand-new IDs). Then a <span class='highlight'>merge commit with two parents</span> is created on main. You get the best of both: history reads <span class='highlight'>semi-linearly</span>, but the PR boundary stays visible forever.",
+    commits: [C.c1, C.c2, C.c3, C.c6, C.c12, C.c13, C.c14],
+    branches: { main: C.c14, feature: C.c13 },
+    head: 'main',
+  },
+};
+
+const MERGE_STEP_INDEX = STEPS.length;   // the index AFTER the last normal step
+const TOTAL_STEPS      = STEPS.length + 1;
+
+function getStep(index) {
+  if (index === MERGE_STEP_INDEX) return MERGE_STEPS[currentStrategy];
+  return STEPS[index];
+}
+
+// ===================== RENDERER =====================
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const linesGroup    = document.getElementById('lines-group');
+const commitsGroup  = document.getElementById('commits-group');
+const branchesGroup = document.getElementById('branches-group');
+const headGroup     = document.getElementById('head-group');
+
+// Create an SVG element
+function svg(tag, attrs = {}, parent = null) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  if (parent) parent.appendChild(el);
+  return el;
+}
+
+// Build a commit node (once). Afterwards we only translate it.
+function buildCommit(id) {
+  const info = LAYOUT[id];
+  const g = svg('g', {
+    class: 'commit-group entering',
+    'data-id': id,
+    transform: `translate(${commitX(info.col)}, ${commitY(info.lane)})`
+  });
+  svg('circle', {
+    class: `commit-circle ${info.color}`,
+    r: COMMIT_RADIUS,
+    cx: 0, cy: 0,
+  }, g);
+  const txt = svg('text', { class: 'commit-hash', x: 0, y: 0 }, g);
+  txt.textContent = id;
+  // strip the `entering` class after the animation finishes
+  setTimeout(() => g.classList.remove('entering'), 650);
+  return g;
+}
+
+// Build a branch label (once). We translate it on moves.
+function buildBranchLabel(name) {
+  const color = name === 'main' ? 'main' : 'feature';
+  const g = svg('g', {
+    class: 'branch-group',
+    'data-name': name,
+  });
+  const width = 64, height = 26;
+  svg('rect', {
+    class: `branch-pill ${color}`,
+    x: -width/2, y: -height/2,
+    width, height,
+    rx: 13,
+  }, g);
+  const t = svg('text', {
+    class: `branch-text ${color}`,
+    x: 0, y: 1,
+  }, g);
+  t.textContent = name;
+  // dotted connector line from label down to the commit (re-rendered on update)
+  const conn = svg('line', {
+    class: `branch-connector ${color}`,
+    x1: 0, y1: height/2,
+    x2: 0, y2: 0,
+  }, g);
+  conn.setAttribute('data-connector', 'true');
+  return g;
+}
+
+// Build HEAD pill (once)
+function buildHead() {
+  const g = svg('g', { class: 'head-group', id: 'head' });
+  const width = 70, height = 28;
+  svg('rect', {
+    class: 'head-pill',
+    x: -width/2, y: -height/2,
+    width, height,
+    rx: 6,
+  }, g);
+  const t = svg('text', {
+    class: 'head-text',
+    x: 0, y: 1,
+  }, g);
+  t.textContent = 'HEAD';
+  // arrow line down to the branch label
+  svg('line', {
+    class: 'head-arrow',
+    id: 'head-arrow-line',
+    x1: 0, y1: height/2,
+    x2: 0, y2: 0,
+  }, g);
+  // arrowhead triangle at the bottom of the line
+  svg('polygon', {
+    class: 'head-arrow',
+    id: 'head-arrow-tip',
+    points: '-5,-5 5,-5 0,3',
+  }, g);
+  return g;
+}
+
+// Path for a parent line (curved if changing lanes)
+function linePath(fromX, fromY, toX, toY) {
+  if (fromY === toY) {
+    return `M ${fromX} ${fromY} L ${toX} ${toY}`;
+  }
+  const midX = (fromX + toX) / 2;
+  return `M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}`;
+}
+
+// Full render of a state
+function render(state) {
+  const liveCommitSet = new Set(state.commits);
+  const ghostSet      = new Set(state.ghostCommits || []);
+
+  // -------- COMMITS --------
+  // Remove commits not present
+  [...commitsGroup.querySelectorAll('.commit-group')].forEach(el => {
+    if (!liveCommitSet.has(el.dataset.id)) el.remove();
+  });
+  // Add or position commits
+  state.commits.forEach(id => {
+    let el = commitsGroup.querySelector(`.commit-group[data-id="${id}"]`);
+    if (!el) {
+      el = buildCommit(id);
+      commitsGroup.appendChild(el);
+    }
+    const info = LAYOUT[id];
+    el.setAttribute('transform', `translate(${commitX(info.col)}, ${commitY(info.lane)})`);
+    el.classList.remove('current');
+    el.classList.toggle('ghost', ghostSet.has(id));
+  });
+
+  // -------- PARENT LINES --------
+  // Redraw fresh each time (they're visually simple)
+  linesGroup.innerHTML = '';
+  state.commits.forEach(childId => {
+    const parents = PARENTS[childId] || [];
+    parents.forEach(parentId => {
+      if (!liveCommitSet.has(parentId)) return;
+      const cInfo = LAYOUT[childId];
+      const pInfo = LAYOUT[parentId];
+      const x1 = commitX(cInfo.col), y1 = commitY(cInfo.lane);
+      const x2 = commitX(pInfo.col), y2 = commitY(pInfo.lane);
+      // figure out the color for the line
+      // Merge commit has two parents — colour each link by the branch it's on
+      let colorClass = cInfo.color;
+      if (cInfo.color === 'merge') {
+        // Line from merge commit to main-parent colored main; to feature-parent colored feature
+        colorClass = pInfo.color === 'feature' ? 'feature' : 'main';
+      }
+      // If either end of the line is a ghost, mark the line as ghost too
+      const isGhost = ghostSet.has(childId) || ghostSet.has(parentId);
+      svg('path', {
+        class: `parent-line ${colorClass}${isGhost ? ' ghost' : ''}`,
+        d: linePath(x1, y1, x2, y2),
+        pathLength: '1',
+      }, linesGroup);
+    });
+  });
+
+  // -------- BRANCH LABELS --------
+  const branchNames = Object.keys(state.branches);
+  // remove labels not present
+  [...branchesGroup.querySelectorAll('.branch-group')].forEach(el => {
+    if (!branchNames.includes(el.dataset.name)) el.remove();
+  });
+  // add/update
+  branchNames.forEach(name => {
+    let el = branchesGroup.querySelector(`.branch-group[data-name="${name}"]`);
+    if (!el) {
+      el = buildBranchLabel(name);
+      branchesGroup.appendChild(el);
+    }
+    const commitId = state.branches[name];
+    const info = LAYOUT[commitId];
+    const targetX = commitX(info.col);
+    const commitYPos = commitY(info.lane);
+    // main always sits ABOVE its commit, feature always BELOW.
+    // This prevents collisions when both branches point at the same
+    // commit (e.g. `git branch feature`, or a fast-forward merge).
+    const labelOffset = name === 'main' ? -60 : 60;
+    const labelY = commitYPos + labelOffset;
+    el.setAttribute('transform', `translate(${targetX}, ${labelY})`);
+    // update the dotted connector inside the label
+    const conn = el.querySelector('[data-connector]');
+    if (conn) {
+      // sign tells which direction the connector runs from the label
+      // toward the commit (positive y = downward in SVG).
+      const sign = labelOffset < 0 ? 1 : -1;
+      conn.setAttribute('y1', sign * 13);       // edge of pill
+      conn.setAttribute('y2', sign * (Math.abs(labelOffset) - COMMIT_RADIUS));
+    }
+  });
+
+  // -------- HEAD --------
+  let headEl = document.getElementById('head');
+  if (!headEl) {
+    headEl = buildHead();
+    headGroup.appendChild(headEl);
+  }
+  const headBranch = state.head;
+  const branchTargetCommit = state.branches[headBranch];
+  const binfo = LAYOUT[branchTargetCommit];
+  const bx = commitX(binfo.col);
+  const by = commitY(binfo.lane);
+  // HEAD follows its branch — branch-name decides the side.
+  const branchOffset = headBranch === 'main' ? -60 : 60;
+  // HEAD sits 55px further out from its branch in the SAME direction
+  const headOffsetFromCommit = branchOffset + (branchOffset < 0 ? -55 : 55);
+  const headX = bx;
+  const headY = by + headOffsetFromCommit;
+  headEl.setAttribute('transform', `translate(${headX}, ${headY})`);
+  // Update HEAD's arrow to reach the branch pill
+  const sign = headOffsetFromCommit < 0 ? 1 : -1;
+  const line = headEl.querySelector('#head-arrow-line');
+  const tip  = headEl.querySelector('#head-arrow-tip');
+  if (line && tip) {
+    // HEAD pill edge is at ±14.  Branch pill edge is at ±42 from HEAD center.
+    // Arrow shaft ends at ±32, triangle tip at ±40 — leaves a 2px gap.
+    line.setAttribute('y1', sign * 14);
+    line.setAttribute('y2', sign * 32);
+    tip.setAttribute('transform', `translate(0, ${sign * 37}) scale(1, ${sign})`);
+  }
+
+  // Mark the commit HEAD transitively points to as "current" (glow)
+  const cur = commitsGroup.querySelector(`.commit-group[data-id="${branchTargetCommit}"]`);
+  if (cur) cur.classList.add('current');
+}
+
+// ===================== STATE MANAGEMENT =====================
+let currentStep = 0;
+let currentStrategy = 'merge';
+
+const stepCounter = document.getElementById('step-counter');
+const commandLine = document.getElementById('command-line');
+const stepTitle   = document.getElementById('step-title');
+const narrative   = document.getElementById('step-narrative');
+const prevBtn     = document.getElementById('prev-btn');
+const nextBtn     = document.getElementById('next-btn');
+const resetBtn    = document.getElementById('reset-btn');
+const strategyBtns = document.querySelectorAll('.strategy-btn');
+
+function renderStep() {
+  const step = getStep(currentStep);
+  render(step);
+
+  stepCounter.textContent = `STEP ${currentStep + 1} / ${TOTAL_STEPS}`;
+  stepTitle.textContent   = step.title;
+  narrative.innerHTML     = step.narrative;
+  if (step.command) {
+    commandLine.innerHTML = `<span class="prompt">$</span> ${step.command}`;
+  } else {
+    commandLine.innerHTML = '';
+  }
+  prevBtn.disabled = currentStep === 0;
+  nextBtn.disabled = currentStep === TOTAL_STEPS - 1;
+  if (currentStep === TOTAL_STEPS - 1) {
+    nextBtn.textContent = '✓ Done';
+  } else {
+    nextBtn.innerHTML = 'Next →';
+  }
+}
+
+nextBtn.addEventListener('click', () => {
+  if (currentStep < TOTAL_STEPS - 1) {
+    currentStep++;
+    renderStep();
+  }
+});
+prevBtn.addEventListener('click', () => {
+  if (currentStep > 0) {
+    currentStep--;
+    renderStep();
+  }
+});
+resetBtn.addEventListener('click', () => {
+  currentStep = 0;
+  renderStep();
+});
+
+// Strategy selector — switching strategies re-renders if we're on the merge step
+strategyBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const s = btn.dataset.strategy;
+    if (s === currentStrategy) return;
+    currentStrategy = s;
+    strategyBtns.forEach(b => {
+      const active = b.dataset.strategy === s;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-checked', active ? 'true' : 'false');
+    });
+    if (currentStep === MERGE_STEP_INDEX) {
+      renderStep();
+    }
+  });
+});
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); nextBtn.click(); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); prevBtn.click(); }
+  if (e.key === 'r' || e.key === 'R') { resetBtn.click(); }
+});
+
+// Initial render
+renderStep();
+</script>
+
+</body>
+</html>
