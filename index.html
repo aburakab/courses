@@ -13,6 +13,7 @@
       --accent: #1e3a8a;
       --muted: #6b7280;
       --border: #dbe3ef;
+      --line-height-body: 1.55;
     }
 
     body {
@@ -20,7 +21,7 @@
       font-family: Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.55;
+      line-height: var(--line-height-body);
     }
 
     header {
@@ -163,10 +164,15 @@ else:
   </main>
 
   <script>
-    document.getElementById('show-answer').addEventListener('click', function () {
-      document.getElementById('answer').textContent = 'Loops are used to repeat code.';
-      this.disabled = true;
-    });
+    const showAnswerButton = document.getElementById('show-answer');
+    const answerText = document.getElementById('answer');
+
+    if (showAnswerButton && answerText) {
+      showAnswerButton.addEventListener('click', function () {
+        answerText.textContent = 'Loops are used to repeat code.';
+        this.disabled = true;
+      });
+    }
   </script>
 </body>
 </html>
