@@ -10,7 +10,7 @@
       --bg: #f7f9fc;
       --card: #ffffff;
       --text: #1f2937;
-      --accent: #2563eb;
+      --accent: #1d4ed8;
       --muted: #6b7280;
       --border: #dbe3ef;
     }
@@ -92,7 +92,7 @@
     }
 
     button:hover {
-      background: #1d4ed8;
+      background: #1e40af;
     }
 
     #answer {
@@ -155,6 +155,7 @@ else:
   <script>
     document.getElementById('show-answer').addEventListener('click', function () {
       document.getElementById('answer').textContent = 'Loops are used to repeat code.';
+      this.disabled = true;
     });
   </script>
 </body>
