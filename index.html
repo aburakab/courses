@@ -10,7 +10,7 @@
       --bg: #f7f9fc;
       --card: #ffffff;
       --text: #1f2937;
-      --accent: #1d4ed8;
+      --accent: #1e3a8a;
       --muted: #6b7280;
       --border: #dbe3ef;
     }
@@ -93,6 +93,16 @@
 
     button:hover {
       background: #1e40af;
+    }
+
+    button:focus-visible {
+      outline: 3px solid #93c5fd;
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
     }
 
     #answer {
