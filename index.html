@@ -71,6 +71,47 @@
       margin-bottom: 40px;
     }
 
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 4px;
+    }
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: transform 0.3s ease;
+    }
+
+    .brand:hover .brand-logo {
+      transform: rotate(-6deg) scale(1.05);
+    }
+
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    .brand-name {
+      font-family: var(--font-sans);
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text);
+    }
+
+    .brand-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
     .crumb {
       font-family: var(--font-mono);
       font-size: 12px;
@@ -359,7 +400,13 @@
   <div class="container">
 
     <header>
-      <div class="crumb"><span class="dot"></span> <span>ProgrammingAdvices / Learning Resources</span></div>
+      <div class="brand">
+        <img src="logo.png" alt="Programming Advices logo" class="brand-logo" />
+        <div class="brand-text">
+          <span class="brand-name">Programming Advices</span>
+          <span class="brand-tag">Learning Resources</span>
+        </div>
+      </div>
       <h1>Learning Hub <span class="slash">/</span></h1>
       <p class="subtitle">
         A collection of interactive concept pages and visual guides for students.
@@ -412,6 +459,13 @@
         description: 'A visual walkthrough of how Git thinks — commits, branches, HEAD, merges, and rebases explained with diagrams.',
         category: 'Programming',
         tags: ['git', 'version-control', 'beginner']
+      },
+      {
+        file: 'git-areas-visualizer.html',
+        title: 'Git Areas Visualizer',
+        description: 'Step through the four Git areas — working dir, staging, local repo, and remote — with a forward flow that adds, edits, and deletes files, and an undo flow showing how to walk every command back.',
+        category: 'Programming',
+        tags: ['git', 'staging', 'undo', 'beginner']
       }
     ];
     // ------------------------------------------------------------------
