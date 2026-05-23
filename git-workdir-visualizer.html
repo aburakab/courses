@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Git Visualizer — Branches & Your Working Directory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:            #0b0f16;
+    --bg-panel:      #11161f;
+    --bg-panel-soft: #161c27;
+    --bg-code:       #0c121b;
+    --border:        #222b3a;
+    --text:          #e8eef7;
+    --text-muted:    #8a94a6;
+    --text-dim:      #5b6578;
+
+    --main:    #f59e0b;   /* amber  — main branch    */
+    --feature: #22d3ee;   /* teal   — login-feature  */
+    --violet:  #a78bfa;
+    --head:    #f472b6;   /* pink   — you-are-here   */
+    --green:   #4ade80;
+    --red:     #f87171;
+
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body:    'Manrope', -apple-system, sans-serif;
+    --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background:
+      radial-gradient(ellipse 80% 55% at 50% -10%, #1a2235 0%, transparent 60%),
+      radial-gradient(ellipse 55% 40% at 95% 115%, #2a1a2e 0%, transparent 60%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 44px 20px;
+  }
+  .container { max-width: 1140px; margin: 0 auto; }
+
+  /* -------- Header -------- */
+  header { text-align: center; margin-bottom: 26px; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--feature);
+    display: inline-block;
+    padding: 6px 14px;
+    border: 1px solid var(--feature);
+    border-radius: 100px;
+    background: #22d3ee14;
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(28px, 4.4vw, 46px);
+    line-height: 1.07;
+    margin: 0 0 12px;
+    letter-spacing: -0.02em;
+  }
+  h1 em { font-style: italic; font-weight: 400; color: var(--feature); }
+  header p {
+    color: var(--text-muted);
+    font-size: 16px;
+    margin: 0 auto;
+    max-width: 620px;
+  }
+
+  /* -------- Hint bar -------- */
+  .hint {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--feature);
+    border-radius: 12px;
+    padding: 12px 18px;
+    margin-bottom: 22px;
+    font-size: 14.5px;
+    color: var(--text-muted);
+  }
+  .hint b { color: var(--text); }
+  code, .ic {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 5px;
+    color: var(--text);
+  }
+
+  /* -------- Stage : graph + working directory -------- */
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
+    gap: 20px;
+    align-items: stretch;
+    margin-bottom: 20px;
+  }
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 14px 18px 0;
+  }
+
+  /* -------- Graph panel -------- */
+  .graph-panel { padding-bottom: 8px; }
+  .graph-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 38px 38px;
+    mask-image: radial-gradient(ellipse at center, black 38%, transparent 78%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 38%, transparent 78%);
+    opacity: 0.22;
+    pointer-events: none;
+  }
+  .git-graph { display: block; width: 100%; height: auto; position: relative; z-index: 1; }
+
+  /* parent lines */
+  .link { fill: none; stroke-width: 3; opacity: 0.55; stroke-linecap: round; }
+  .link.main    { stroke: var(--main); }
+  .link.feature { stroke: var(--feature); }
+
+  /* nodes (commits + branch labels) */
+  .node { cursor: pointer; transition: transform 0.18s ease; }
+  .node:hover { transform: translateY(-3px); }
+  .node:focus { outline: none; }
+  .node:focus-visible .ring { opacity: 0.6; }
+  .node text { pointer-events: none; user-select: none; }
+
+  .ring {
+    fill: none;
+    stroke: var(--head);
+    stroke-width: 2.5;
+    stroke-dasharray: 4 4;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .node:hover .ring { opacity: 0.4; }
+  .node.selected .ring { opacity: 1; animation: spin 14s linear infinite; }
+  @keyframes spin { to { stroke-dashoffset: -100; } }
+
+  .dot { stroke-width: 2.8; transition: filter 0.25s ease; }
+  .dot.main    { fill: #1d1408; stroke: var(--main); }
+  .dot.feature { fill: #07212b; stroke: var(--feature); }
+  .node:hover .dot.main    { filter: drop-shadow(0 0 7px var(--main)); }
+  .node:hover .dot.feature { filter: drop-shadow(0 0 7px var(--feature)); }
+  .node.selected .dot.main    { filter: drop-shadow(0 0 11px var(--main)); }
+  .node.selected .dot.feature { filter: drop-shadow(0 0 11px var(--feature)); }
+
+  .hash {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    fill: var(--text);
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .cmsg {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    fill: var(--text-dim);
+    text-anchor: middle;
+    transition: fill 0.25s ease;
+  }
+  .node.selected .cmsg { fill: var(--text-muted); }
+
+  /* branch labels */
+  .pill { stroke-width: 2; transition: filter 0.2s ease; }
+  .pill.main    { fill: #221808; stroke: var(--main); }
+  .pill.feature { fill: #0a212a; stroke: var(--feature); }
+  .node.selected .pill.main    { fill: #3a2a0c; filter: drop-shadow(0 0 9px var(--main)); }
+  .node.selected .pill.feature { fill: #0e3340; filter: drop-shadow(0 0 9px var(--feature)); }
+  .blabel {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .blabel.main    { fill: var(--main); }
+  .blabel.feature { fill: var(--feature); }
+  .bconn { stroke-width: 2; stroke-dasharray: 3 3; opacity: 0.55; }
+  .bconn.main    { stroke: var(--main); }
+  .bconn.feature { stroke: var(--feature); }
+  .node.branch.pulse .pill { animation: pulse-pill 1.8s ease-in-out infinite; }
+  @keyframes pulse-pill {
+    0%, 100% { filter: drop-shadow(0 0 2px var(--feature)); }
+    50%      { filter: drop-shadow(0 0 12px var(--feature)); }
+  }
+
+  /* you-are-here pin */
+  .pin { transition: transform 0.5s cubic-bezier(0.34, 1.3, 0.64, 1); }
+  .pin-body { fill: var(--head); filter: drop-shadow(0 2px 5px #f472b688); }
+  .pin-dot  { fill: #2a1020; }
+  .pin-wrap { animation: bob 2.4s ease-in-out infinite; }
+  @keyframes bob {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-3px); }
+  }
+
+  /* -------- Working-directory panel -------- */
+  .wd-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel-soft);
+  }
+  .wd-folder {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .wd-loc {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 100px;
+    white-space: nowrap;
+  }
+  .wd-loc.main    { color: var(--main);    background: #f59e0b1c; border: 1px solid #f59e0b44; }
+  .wd-loc.feature { color: var(--feature); background: #22d3ee1c; border: 1px solid #22d3ee44; }
+  .wd-loc.detached{ color: var(--text-muted); background: #ffffff10; border: 1px solid var(--border); }
+
+  .wd-files { padding: 10px; min-height: 230px; }
+
+  .file {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    background: var(--bg-panel-soft);
+    border-left: 3px solid transparent;
+  }
+  .file:last-child { margin-bottom: 0; }
+  .file.entering { animation: fileIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .file.exiting  { animation: fileOut 0.42s ease forwards; pointer-events: none; }
+  @keyframes fileIn {
+    from { opacity: 0; transform: translateX(18px); max-height: 0; margin-bottom: 0; }
+    to   { opacity: 1; transform: translateX(0);   max-height: 260px; margin-bottom: 8px; }
+  }
+  @keyframes fileOut {
+    from { opacity: 1; transform: translateX(0);   max-height: 260px; margin-bottom: 8px; }
+    to   { opacity: 0; transform: translateX(26px); max-height: 0; margin-bottom: 0;
+           padding-top: 0; padding-bottom: 0; border-width: 0; }
+  }
+  .file.flash-new { animation: flashNew 1.9s ease; }
+  .file.flash-mod { animation: flashMod 1.9s ease; }
+  @keyframes flashNew {
+    0%, 70% { border-left-color: var(--green); background: #4ade8012; }
+    100%    { border-left-color: transparent;  background: var(--bg-panel-soft); }
+  }
+  @keyframes flashMod {
+    0%, 70% { border-left-color: var(--main); background: #f59e0b12; }
+    100%    { border-left-color: transparent; background: var(--bg-panel-soft); }
+  }
+
+  .file-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 13px;
+    cursor: pointer;
+  }
+  .file-head:hover { background: #ffffff07; }
+  .ext {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 6px;
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .ext.cpp { color: var(--feature); background: #22d3ee18; border: 1px solid #22d3ee40; }
+  .ext.h   { color: var(--violet);  background: #a78bfa18; border: 1px solid #a78bfa40; }
+  .ext.md  { color: var(--text-muted); background: #ffffff0d; border: 1px solid var(--border); }
+  .file-name {
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text);
+    flex: 1;
+  }
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 100px;
+    animation: chipLife 2.9s ease forwards;
+  }
+  .chip.new { color: var(--green); background: #4ade8018; border: 1px solid #4ade8050; }
+  .chip.mod { color: var(--main);  background: #f59e0b18; border: 1px solid #f59e0b50; }
+  @keyframes chipLife {
+    0% { opacity: 0; transform: scale(0.8); }
+    10%, 78% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.9); }
+  }
+  .chevron {
+    width: 16px; height: 16px;
+    flex-shrink: 0;
+    color: var(--text-dim);
+    transition: transform 0.25s ease;
+  }
+  .file.open .chevron { transform: rotate(90deg); color: var(--text-muted); }
+
+  .file-code {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.32s ease;
+    border-top: 1px solid transparent;
+  }
+  .file.open .file-code {
+    max-height: 460px;
+    border-top-color: var(--border);
+  }
+  .code {
+    background: var(--bg-code);
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+  .cl { display: flex; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
+  .ln {
+    width: 36px;
+    flex-shrink: 0;
+    text-align: right;
+    padding-right: 12px;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .lc { white-space: pre; color: #c6d0de; padding-right: 16px; }
+  .t-pre { color: var(--violet); }
+  .t-str { color: var(--green); }
+  .t-com { color: var(--text-dim); font-style: italic; }
+  .t-kw  { color: var(--feature); }
+  .t-mdh { color: var(--main); font-weight: 600; }
+
+  /* -------- Status bar -------- */
+  .statusbar {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--head);
+    border-radius: 14px;
+    padding: 15px 20px;
+    margin-bottom: 20px;
+    font-size: 15px;
+    color: var(--text-muted);
+    min-height: 58px;
+  }
+  .statusbar .sb-icon { font-size: 19px; line-height: 1.3; flex-shrink: 0; }
+  .statusbar b { color: var(--text); }
+  .statusbar i { color: var(--text); font-style: italic; }
+  .statusbar code { font-size: 13px; }
+  .sb-soft { color: var(--text-dim); }
+  .sb-anim { animation: sbPop 0.4s ease; }
+  @keyframes sbPop { from { opacity: 0.3; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+
+  /* -------- Legend -------- */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 14px 26px;
+    flex-wrap: wrap;
+    padding: 16px 20px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .legend-item { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); }
+  .lg-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; }
+  .lg-dot.main    { border-color: var(--main);    background: #1d1408; }
+  .lg-dot.feature { border-color: var(--feature); background: #07212b; }
+  .lg-pill {
+    padding: 2px 9px; border-radius: 100px; font-size: 10px; font-weight: 700;
+    border: 1px solid var(--feature); color: var(--feature); background: #0a212a;
+  }
+  .lg-ring {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px dashed var(--head);
+  }
+
+  /* -------- Responsive -------- */
+  @media (max-width: 860px) {
+    body { padding: 30px 14px; }
+    .stage { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <div class="eyebrow">Interactive · Git Branches</div>
+    <h1>Switch a branch,<br>watch the <em>folder change</em>.</h1>
+    <p>The panel on the right is a real working directory. Click any commit — or either
+       branch label — and the project folder rebuilds itself to match that exact moment.</p>
+  </header>
+
+  <div class="hint">
+    <span>👉</span>
+    <span><b>Start here:</b> click <b>login-feature</b>, then click <b>main</b>.
+      Watch <code>login.h</code> and <code>login.cpp</code> appear and vanish.</span>
+  </div>
+
+  <div class="stage">
+
+    <!-- ============ COMMIT GRAPH ============ -->
+    <div class="panel graph-panel">
+      <div class="panel-title">Commit history</div>
+      <svg class="git-graph" viewBox="0 0 720 382" preserveAspectRatio="xMidYMid meet">
+
+        <!-- parent lines -->
+        <g id="links">
+          <path class="link main"    d="M275 262 L110 262"/>
+          <path class="link feature" d="M440 128 C357 128 357 262 275 262"/>
+          <path class="link feature" d="M605 128 L440 128"/>
+        </g>
+
+        <!-- commits -->
+        <g class="node commit" data-sel="commit:a1b" tabindex="0" role="button"
+           aria-label="Commit a1b: Set up the project">
+          <circle class="ring" cx="110" cy="262" r="39"/>
+          <circle class="dot main" cx="110" cy="262" r="30"/>
+          <text class="hash" x="110" y="262">a1b</text>
+          <text class="cmsg" x="110" y="196">Project setup</text>
+        </g>
+        <g class="node commit" data-sel="commit:c3d" tabindex="0" role="button"
+           aria-label="Commit c3d: Add a welcome message">
+          <circle class="ring" cx="275" cy="262" r="39"/>
+          <circle class="dot main" cx="275" cy="262" r="30"/>
+          <text class="hash" x="275" y="262">c3d</text>
+          <text class="cmsg" x="275" y="196">Welcome message</text>
+        </g>
+        <g class="node commit" data-sel="commit:e5f" tabindex="0" role="button"
+           aria-label="Commit e5f: Add login files">
+          <circle class="ring" cx="440" cy="128" r="39"/>
+          <circle class="dot feature" cx="440" cy="128" r="30"/>
+          <text class="hash" x="440" y="128">e5f</text>
+          <text class="cmsg" x="440" y="183">Add login files</text>
+        </g>
+        <g class="node commit" data-sel="commit:7a9" tabindex="0" role="button"
+           aria-label="Commit 7a9: Connect login to main">
+          <circle class="ring" cx="605" cy="128" r="39"/>
+          <circle class="dot feature" cx="605" cy="128" r="30"/>
+          <text class="hash" x="605" y="128">7a9</text>
+          <text class="cmsg" x="605" y="183">Connect login</text>
+        </g>
+
+        <!-- branch labels -->
+        <g class="node branch" data-sel="branch:main" tabindex="0" role="button"
+           aria-label="Switch to the main branch">
+          <line class="bconn main" x1="275" y1="316" x2="275" y2="292"/>
+          <rect class="pill main" x="240" y="316" width="70" height="32" rx="16"/>
+          <text class="blabel main" x="275" y="332">main</text>
+        </g>
+        <g class="node branch pulse" data-sel="branch:login-feature" tabindex="0" role="button"
+           aria-label="Switch to the login-feature branch">
+          <line class="bconn feature" x1="605" y1="66" x2="605" y2="98"/>
+          <rect class="pill feature" x="528" y="34" width="154" height="32" rx="16"/>
+          <text class="blabel feature" x="605" y="50">login-feature</text>
+        </g>
+
+        <!-- you-are-here pin -->
+        <g id="pin" class="pin">
+          <g class="pin-wrap">
+            <path class="pin-body" d="M0 -19 C7 -19 12 -14 12 -8 C12 -1 0 11 0 11
+                                      C0 11 -12 -1 -12 -8 C-12 -14 -7 -19 0 -19 Z"/>
+            <circle class="pin-dot" cx="0" cy="-9" r="4.2"/>
+          </g>
+        </g>
+
+      </svg>
+    </div>
+
+    <!-- ============ WORKING DIRECTORY ============ -->
+    <div class="panel">
+      <div class="wd-head">
+        <span class="wd-folder">📁 my-project</span>
+        <span class="wd-loc" id="wd-loc">—</span>
+      </div>
+      <div class="wd-files" id="wd-files"></div>
+    </div>
+
+  </div>
+
+  <div class="statusbar" id="statusbar"><span class="sb-icon">📂</span><span>—</span></div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="lg-dot main"></span> main commit</span>
+    <span class="legend-item"><span class="lg-dot feature"></span> login-feature commit</span>
+    <span class="legend-item"><span class="lg-pill">branch</span> click a label to switch</span>
+    <span class="legend-item"><span class="lg-ring"></span> where you are now</span>
+  </div>
+
+</div>
+
+<script>
+// ===================== DATA =====================
+
+// File contents — each file can have several versions
+const FILES = {
+  'README.md': {
+    r1: '# My Project\n\nA simple C++ program.'
+  },
+  'main.cpp': {
+    m1: '#include <iostream>\n\nint main() {\n    std::cout << "Hello!" << std::endl;\n    return 0;\n}',
+    m2: '#include <iostream>\n\nint main() {\n    std::cout << "Welcome to my program!" << std::endl;\n    return 0;\n}',
+    m3: '#include <iostream>\n#include "login.h"\n\nint main() {\n    std::cout << "Welcome to my program!" << std::endl;\n    login();\n    return 0;\n}'
+  },
+  'login.h': {
+    h1: '#ifndef LOGIN_H\n#define LOGIN_H\n\nvoid login();\n\n#endif'
+  },
+  'login.cpp': {
+    l1: '#include "login.h"\n#include <iostream>\n\nvoid login() {\n    std::cout << "Login screen" << std::endl;\n}',
+    l2: '#include "login.h"\n#include <iostream>\n\nvoid login() {\n    std::cout << "Enter your username:" << std::endl;\n}'
+  }
+};
+
+// the order files always appear in the folder
+const FILE_ORDER = ['README.md', 'main.cpp', 'login.h', 'login.cpp'];
+
+// commits — each has a tree: a snapshot of which file version exists
+const COMMITS = {
+  a1b: { msg: 'Set up the project',     tree: { 'README.md': 'r1', 'main.cpp': 'm1' } },
+  c3d: { msg: 'Add a welcome message',  tree: { 'README.md': 'r1', 'main.cpp': 'm2' } },
+  e5f: { msg: 'Add login files',        tree: { 'README.md': 'r1', 'main.cpp': 'm2',
+                                                 'login.h': 'h1', 'login.cpp': 'l1' } },
+  '7a9': { msg: 'Connect login to main', tree: { 'README.md': 'r1', 'main.cpp': 'm3',
+                                                 'login.h': 'h1', 'login.cpp': 'l2' } }
+};
+
+// where each branch label currently points (its newest commit)
+const BRANCH_TIP  = { 'main': 'c3d', 'login-feature': '7a9' };
+const COMMIT_POS  = { a1b: [110, 262], c3d: [275, 262], e5f: [440, 128], '7a9': [605, 128] };
+
+// ===================== HELPERS =====================
+
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// very light syntax highlighting, line by line
+function highlight(line, lang) {
+  let e = esc(line);
+  if (lang === 'md') {
+    return /^#/.test(line) ? '<span class="t-mdh">' + e + '</span>' : (e || '&nbsp;');
+  }
+  e = e.replace(
+    /(&quot;[^&]*?&quot;)|(\/\/.*$)|(#[a-zA-Z]+)|\b(int|void|return|const|char|bool|true|false)\b/g,
+    function (m, str, com, pre, kw) {
+      if (str) return '<span class="t-str">' + str + '</span>';
+      if (com) return '<span class="t-com">' + com + '</span>';
+      if (pre) return '<span class="t-pre">' + pre + '</span>';
+      if (kw)  return '<span class="t-kw">'  + kw  + '</span>';
+      return m;
+    });
+  return e || '&nbsp;';
+}
+
+function codeHtml(content, lang) {
+  return content.split('\n').map(function (ln, i) {
+    return '<div class="cl"><span class="ln">' + (i + 1) +
+           '</span><span class="lc">' + highlight(ln, lang) + '</span></div>';
+  }).join('');
+}
+
+function langOf(name) { return name.split('.').pop() === 'md' ? 'md' : 'cpp'; }
+function extOf(name)  { return name.split('.').pop(); }
+
+// join file names into readable english:  a · a and b · a, b and c
+function nameList(arr) {
+  var c = arr.map(function (f) { return '<code>' + f + '</code>'; });
+  if (c.length === 1) return c[0];
+  if (c.length === 2) return c[0] + ' and ' + c[1];
+  return c.slice(0, -1).join(', ') + ' and ' + c[c.length - 1];
+}
+function joinClauses(cl) {
+  if (cl.length === 1) return cl[0];
+  if (cl.length === 2) return cl[0] + ', and ' + cl[1];
+  return cl.slice(0, -1).join('; ') + '; and ' + cl[cl.length - 1];
+}
+
+// diff two trees -> { added, removed, modified }
+function diffTrees(oldT, newT) {
+  var added = [], removed = [], modified = [];
+  FILE_ORDER.forEach(function (f) {
+    var o = f in oldT, n = f in newT;
+    if (n && !o) added.push(f);
+    else if (!n && o) removed.push(f);
+    else if (n && o && oldT[f] !== newT[f]) modified.push(f);
+  });
+  return { added: added, removed: removed, modified: modified };
+}
+
+// ===================== STATE =====================
+
+var displayedTree   = {};    // what the folder panel currently shows
+var expandedFile    = null;  // which file's code is open (single open)
+var selectedCommit  = null;
+var selectedBranch  = null;
+var firstSelection  = true;
+
+var wdFiles   = document.getElementById('wd-files');
+var wdLoc     = document.getElementById('wd-loc');
+var statusbar = document.getElementById('statusbar');
+var pin       = document.getElementById('pin');
+
+// ===================== WORKING-DIRECTORY RENDER =====================
+
+function buildFileRow(name) {
+  var row = document.createElement('div');
+  row.className = 'file';
+  row.dataset.file = name;
+
+  var head = document.createElement('div');
+  head.className = 'file-head';
+  head.innerHTML =
+    '<span class="ext ' + extOf(name) + '">' + extOf(name) + '</span>' +
+    '<span class="file-name">' + name + '</span>' +
+    '<span class="chip-slot"></span>' +
+    '<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M9 6l6 6-6 6"/></svg>';
+
+  var codeWrap = document.createElement('div');
+  codeWrap.className = 'file-code';
+  codeWrap.innerHTML = '<div class="code"></div>';
+
+  head.addEventListener('click', function () { toggleFile(name); });
+
+  row.appendChild(head);
+  row.appendChild(codeWrap);
+  return row;
+}
+
+function fillCode(row, name, version) {
+  var content = FILES[name][version];
+  row.querySelector('.code').innerHTML = codeHtml(content, langOf(name));
+}
+
+function toggleFile(name) {
+  var row = wdFiles.querySelector('.file[data-file="' + cssq(name) + '"]:not(.exiting)');
+  if (!row) return;
+  if (expandedFile === name) {
+    row.classList.remove('open');
+    expandedFile = null;
+  } else {
+    // close any other open file
+    var open = wdFiles.querySelector('.file.open');
+    if (open) open.classList.remove('open');
+    fillCode(row, name, displayedTree[name]);
+    row.classList.add('open');
+    expandedFile = name;
+  }
+}
+
+function cssq(s) { return s.replace(/\./g, '\\.'); }
+
+function insertInOrder(row, name) {
+  var idx = FILE_ORDER.indexOf(name);
+  var rows = wdFiles.querySelectorAll('.file');
+  var ref = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (FILE_ORDER.indexOf(rows[i].dataset.file) > idx) { ref = rows[i]; break; }
+  }
+  wdFiles.insertBefore(row, ref);
+}
+
+function setChip(row, type) {
+  var slot = row.querySelector('.chip-slot');
+  slot.innerHTML = '';
+  if (!type) return;
+  var chip = document.createElement('span');
+  chip.className = 'chip ' + (type === 'new' ? 'new' : 'mod');
+  chip.textContent = type === 'new' ? '+ new' : 'modified';
+  chip.addEventListener('animationend', function () { chip.remove(); });
+  slot.appendChild(chip);
+}
+
+function renderWorkdir(newTree, animate) {
+  var d = diffTrees(displayedTree, newTree);
+
+  // remove rows for files that left the folder
+  d.removed.forEach(function (f) {
+    var row = wdFiles.querySelector('.file[data-file="' + cssq(f) + '"]:not(.exiting)');
+    if (!row) return;
+    if (expandedFile === f) expandedFile = null;
+    if (animate) {
+      row.classList.add('exiting');
+      row.addEventListener('animationend', function () { row.remove(); }, { once: true });
+    } else {
+      row.remove();
+    }
+  });
+
+  // add or update files that are present
+  FILE_ORDER.forEach(function (f) {
+    if (!(f in newTree)) return;
+    var version = newTree[f];
+    var row = wdFiles.querySelector('.file[data-file="' + cssq(f) + '"]:not(.exiting)');
+    var isNew = d.added.indexOf(f) !== -1;
+    var isMod = d.modified.indexOf(f) !== -1;
+
+    if (!row) {
+      row = buildFileRow(f);
+      insertInOrder(row, f);
+      if (animate) {
+        row.classList.add('entering');
+        row.addEventListener('animationend', function () {
+          row.classList.remove('entering');
+        }, { once: true });
+      }
+    } else if (expandedFile === f) {
+      fillCode(row, f, version);   // keep open file's code fresh
+    }
+
+    if (animate && isNew) flashRow(row, 'flash-new');
+    if (animate && isMod) flashRow(row, 'flash-mod');
+    setChip(row, animate ? (isNew ? 'new' : (isMod ? 'mod' : '')) : '');
+  });
+
+  displayedTree = Object.assign({}, newTree);
+}
+
+function flashRow(row, cls) {
+  row.classList.remove('flash-new', 'flash-mod');
+  void row.offsetWidth;          // restart the animation
+  row.classList.add(cls);
+  row.addEventListener('animationend', function () {
+    row.classList.remove(cls);
+  }, { once: true });
+}
+
+// ===================== GRAPH + STATUS =====================
+
+function updateGraph(commitId, branchName) {
+  document.querySelectorAll('.node.selected').forEach(function (n) {
+    n.classList.remove('selected');
+  });
+  var c = document.querySelector('[data-sel="commit:' + commitId + '"]');
+  if (c) c.classList.add('selected');
+  if (branchName) {
+    var b = document.querySelector('[data-sel="branch:' + branchName + '"]');
+    if (b) b.classList.add('selected');
+  }
+  var pos = COMMIT_POS[commitId];
+  pin.setAttribute('transform', 'translate(' + pos[0] + ',' + (pos[1] - 41) + ')');
+}
+
+function updateHeader(commitId, branchName) {
+  var n = Object.keys(COMMITS[commitId].tree).length;
+  if (branchName) {
+    wdLoc.className = 'wd-loc ' + (branchName === 'main' ? 'main' : 'feature');
+    wdLoc.textContent = 'on branch ' + branchName + ' · ' + n + ' files';
+  } else {
+    wdLoc.className = 'wd-loc detached';
+    wdLoc.textContent = 'viewing commit ' + commitId + ' · ' + n + ' files';
+  }
+}
+
+function updateStatus(commitId, branchName, prevTree, first) {
+  var html;
+  if (first) {
+    html = '<span class="sb-icon">📂</span><span>You\'re on the <b>main</b> branch — ' +
+           '<b>2 commits</b> behind you and <b>2 files</b> in the folder. ' +
+           'Now click the <b>login-feature</b> label and watch the folder change.</span>';
+  } else {
+    var d = diffTrees(prevTree, COMMITS[commitId].tree);
+    var headTxt = branchName
+      ? 'Switched to <b>' + branchName + '</b>.'
+      : 'Now viewing commit <b>' + commitId + '</b> — <i>' + COMMITS[commitId].msg + '</i>.';
+
+    var clauses = [];
+    if (d.added.length)    clauses.push(nameList(d.added) + ' appeared');
+    if (d.removed.length)  clauses.push(nameList(d.removed) + ' disappeared');
+    if (d.modified.length) clauses.push(nameList(d.modified) + ' changed');
+
+    var body = clauses.length
+      ? ' ' + joinClauses(clauses) + '.'
+      : ' The folder is identical here.';
+    var extra = d.removed.length
+      ? ' <span class="sb-soft">Nothing is lost — those files still live on the other branch.</span>'
+      : '';
+    html = '<span class="sb-icon">📂</span><span>' + headTxt + body + extra + '</span>';
+  }
+  statusbar.innerHTML = html;
+  statusbar.classList.remove('sb-anim');
+  void statusbar.offsetWidth;
+  statusbar.classList.add('sb-anim');
+}
+
+// ===================== SELECTION =====================
+
+function select(kind, key) {
+  var commitId, branchName;
+  if (kind === 'branch') {
+    branchName = key;
+    commitId   = BRANCH_TIP[key];
+  } else {
+    commitId   = key;
+    branchName = Object.keys(BRANCH_TIP).filter(function (b) {
+      return BRANCH_TIP[b] === commitId;
+    })[0] || null;
+  }
+
+  if (!firstSelection && commitId === selectedCommit && branchName === selectedBranch) return;
+
+  var prevTree = Object.assign({}, displayedTree);
+  var first = firstSelection;
+
+  selectedCommit = commitId;
+  selectedBranch = branchName;
+
+  updateGraph(commitId, branchName);
+  updateHeader(commitId, branchName);
+  renderWorkdir(COMMITS[commitId].tree, !first);
+  updateStatus(commitId, branchName, prevTree, first);
+
+  firstSelection = false;
+}
+
+// ===================== WIRING =====================
+
+document.querySelectorAll('.node').forEach(function (node) {
+  function activate() {
+    // stop the attention pulse once the user interacts
+    document.querySelectorAll('.node.pulse').forEach(function (n) {
+      n.classList.remove('pulse');
+    });
+    var parts = node.dataset.sel.split(':');
+    select(parts[0], parts[1]);
+  }
+  node.addEventListener('click', activate);
+  node.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+  });
+});
+
+// initial state — standing on main
+select('branch', 'main');
+</script>
+
+</body>
+</html>
