@@ -650,7 +650,7 @@ const STEPS = [
   },
   {
     title: "Switch onto the branch",
-    command: "git checkout feature",
+    command: "git switch feature",
     narrative: "HEAD slides from <span class='highlight'>main</span> to <span class='highlight'>feature</span>. No commits changed, no files moved — we just changed where we're standing.",
     commits: [C.c1, C.c2, C.c3],
     branches: { main: C.c3, feature: C.c3 },
@@ -674,7 +674,7 @@ const STEPS = [
   },
   {
     title: "Jump back to main",
-    command: "git checkout main",
+    command: "git switch main",
     narrative: "HEAD jumps back to main. Your feature work is still completely safe — the commits are still there, the branch label is still there. We just moved where we're standing.",
     commits: [C.c1, C.c2, C.c3, C.c4, C.c5],
     branches: { main: C.c3, feature: C.c5 },
@@ -711,7 +711,7 @@ const MERGE_STEPS = {
   },
   rebase: {
     title: "Rebase and fast-forward",
-    command: "git rebase main  &&  git checkout main  &&  git merge --ff-only feature",
+    command: "git rebase main  &&  git switch main  &&  git merge --ff-only feature",
     narrative: "Two steps in one move. First, feature's commits are <span class='highlight'>replayed on top of main</span> (brand-new IDs — the originals are abandoned). Then <span class='highlight'>main fast-forwards</span> to the new tip. Both branches end up on the same commit with a perfectly <span class='highlight'>linear history</span>, as if the branch never diverged.",
     commits: [C.c1, C.c2, C.c3, C.c6, C.c9, C.c10],
     branches: { main: C.c10, feature: C.c10 },
