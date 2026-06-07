@@ -518,7 +518,11 @@
   <div class="strategy-selector">
     <div class="strategy-label">Merge strategy</div>
     <div class="strategy-options" role="radiogroup">
-      <button class="strategy-btn active" data-strategy="merge" role="radio" aria-checked="true">
+      <button class="strategy-btn active" data-strategy="ff" role="radio" aria-checked="true">
+        <span class="strategy-name">Fast-forward</span>
+        <span class="strategy-hint">no divergence · pointer slide</span>
+      </button>
+      <button class="strategy-btn" data-strategy="merge" role="radio" aria-checked="false">
         <span class="strategy-name">Merge commit</span>
         <span class="strategy-hint">new commit · 2 parents</span>
       </button>
@@ -701,6 +705,14 @@ const MERGE_STEPS = {
     branches: { main: C.c7, feature: C.c5 },
     head: 'main',
   },
+  ff: {
+    title: "Fast-forward merge",
+    command: "git merge feature",
+    narrative: "Since main hasn't moved, git doesn't need a merge commit. It just <span class='highlight'>slides main's pointer forward</span> to feature's tip. Both branches now point at the same commit, and history stays perfectly <span class='highlight'>linear</span> — as if the branch never existed.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5],
+    branches: { main: C.c5, feature: C.c5 },
+    head: 'main',
+  },
   squash: {
     title: "Squash and merge",
     command: "git merge --squash feature && git commit",
@@ -730,8 +742,25 @@ const MERGE_STEPS = {
 const MERGE_STEP_INDEX = STEPS.length;   // the index AFTER the last normal step
 const TOTAL_STEPS      = STEPS.length + 1;
 
+// Some strategies need a different "pre-merge" state. Fast-forward only works
+// when main hasn't received any new commits — so for FF, we override step 7
+// (the divergence step) to keep main at c3 instead of advancing to c6.
+const PRE_MERGE_STEPS = {
+  ff: {
+    title: "No new commits on main",
+    command: "",
+    narrative: "Nobody else pushed to main while you were working. Main is still at <span class='highlight'>c3</span> — the exact commit feature was branched from. There's no divergence to reconcile, which sets up the simplest possible merge: a <span class='highlight'>fast-forward</span>.",
+    commits: [C.c1, C.c2, C.c3, C.c4, C.c5],
+    branches: { main: C.c3, feature: C.c5 },
+    head: 'main',
+  },
+};
+
 function getStep(index) {
   if (index === MERGE_STEP_INDEX) return MERGE_STEPS[currentStrategy];
+  if (index === MERGE_STEP_INDEX - 1 && PRE_MERGE_STEPS[currentStrategy]) {
+    return PRE_MERGE_STEPS[currentStrategy];
+  }
   return STEPS[index];
 }
 
@@ -962,7 +991,7 @@ function render(state) {
 
 // ===================== STATE MANAGEMENT =====================
 let currentStep = 0;
-let currentStrategy = 'merge';
+let currentStrategy = 'ff';
 
 const stepCounter = document.getElementById('step-counter');
 const commandLine = document.getElementById('command-line');
@@ -1022,9 +1051,7 @@ strategyBtns.forEach(btn => {
       b.classList.toggle('active', active);
       b.setAttribute('aria-checked', active ? 'true' : 'false');
     });
-    if (currentStep === MERGE_STEP_INDEX) {
-      renderStep();
-    }
+    renderStep();
   });
 });
 
