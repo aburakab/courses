@@ -247,6 +247,42 @@
   .statusbar.tone-pending  { color: var(--staging); border-color: var(--staging); background: rgba(245,158,11,0.08); }
   .statusbar.tone-pending .sb-dot  { background: var(--staging); box-shadow: 0 0 8px var(--staging); }
 
+  .state-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .state-row .statusbar { margin-bottom: 0; }
+  .revert-cmd {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 7px 13px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-muted);
+  }
+  .revert-cmd[hidden] { display: none; }
+  .revert-cmd .rc-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    opacity: 0.85;
+  }
+  .revert-cmd .rc-cmd { color: var(--text); }
+  .revert-cmd.tone-active   { border-color: var(--staging); background: rgba(245,158,11,0.08); color: var(--staging); }
+  .revert-cmd.tone-active .rc-cmd { color: var(--staging); }
+  .revert-cmd.tone-done     { border-color: var(--local); background: rgba(52,211,153,0.08); color: var(--local); }
+  .revert-cmd.tone-done .rc-cmd { color: var(--local); }
+  .revert-cmd.tone-aborted  { border-color: var(--text-dim); color: var(--text-dim); }
+  .revert-cmd.tone-aborted .rc-cmd { color: var(--text-dim); text-decoration: line-through; }
+
   /* file viewer */
   .fileview {
     border: 1px solid var(--border);
@@ -568,7 +604,10 @@
     <div class="rail-label">Commit history <span class="rail-hint">— 👆 click a commit to see what it changed</span></div>
     <div class="rail" id="rail"></div>
 
-    <div class="statusbar" id="statusbar"><span class="sb-dot"></span><span id="status-text">—</span></div>
+    <div class="state-row">
+      <div class="statusbar" id="statusbar"><span class="sb-dot"></span><span id="status-text">—</span></div>
+      <span class="revert-cmd" id="revert-cmd" hidden></span>
+    </div>
 
     <div class="file-label">The file Git is working on</div>
     <div class="fileview">
@@ -692,6 +731,7 @@ const EXAMPLES = [
     id: 'same-line',
     label: 'Same line changed twice',
     file: 'config.txt',
+    target: 'c3d',
     steps: [
       {
         title: "The setup: one line, changed twice",
@@ -787,6 +827,7 @@ const EXAMPLES = [
     id: 'modify-delete',
     label: 'File was deleted later',
     file: 'notes.txt',
+    target: 'c3d',
     steps: [
       {
         title: "The setup: a file that's now gone",
@@ -880,6 +921,7 @@ const fvTag      = document.getElementById('fv-tag');
 const fvBody     = document.getElementById('fv-body');
 const fvBack     = document.getElementById('fv-back');
 const gitout     = document.getElementById('gitout');
+const revertCmdEl = document.getElementById('revert-cmd');
 
 fvBack.addEventListener('click', () => { inspecting = null; render(); });
 
@@ -1009,6 +1051,22 @@ function render() {
   const step = all[currentStep];
 
   renderRail(step.commits);
+
+  // Persistent "revert in progress" chip — shows the command that started it,
+  // visible from the moment revert is run until the example ends.
+  const ex = EXAMPLES[currentEx];
+  if (currentStep >= 1) {
+    const cmd = step.command || '';
+    let label = 'in progress', tone = 'active';
+    if (cmd.includes('--continue')) { label = 'completed';  tone = 'done'; }
+    else if (cmd.includes('--abort')) { label = 'cancelled'; tone = 'aborted'; }
+    revertCmdEl.className = 'revert-cmd tone-' + tone;
+    revertCmdEl.innerHTML =
+      `<span class="rc-label">revert ${label}</span><span class="rc-cmd">$ git revert ${ex.target}</span>`;
+    revertCmdEl.hidden = false;
+  } else {
+    revertCmdEl.hidden = true;
+  }
 
   // If a commit is being inspected, the file viewer shows that commit's diff
   // and the status bar explains we've stepped out of the walkthrough.
