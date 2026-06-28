@@ -878,7 +878,7 @@
   <header>
     <div class="eyebrow">Interactive Lesson</div>
     <h1>Where does your code <em>actually live</em>?<br>The four Git areas.</h1>
-    <p>Every Git command moves your work between four boxes — three on your machine, one on a server. Walk through realistic file changes — <em>add, edit, delete</em> — then walk them back when you've gone too far.</p>
+    <p>Every Git command moves your work between four boxes — three on your machine, one on a server. Walk through realistic file changes — <em>add, edit, delete</em> — then learn to <em>undo and fix</em> them when something goes wrong.</p>
   </header>
 
   <!-- Mode selector -->
@@ -890,8 +890,8 @@
         <span class="mode-hint">how things move into Git</span>
       </button>
       <button class="mode-btn" data-mode="undo" role="radio" aria-checked="false">
-        <span class="mode-name">↶ Undo flow</span>
-        <span class="mode-hint">how to walk it back</span>
+        <span class="mode-name">↶ Undo &amp; fix</span>
+        <span class="mode-hint">walk back &amp; correct mistakes</span>
       </button>
     </div>
   </div>
@@ -1094,6 +1094,8 @@ const RA1 = ['VERSION = 1'];
 const RA2 = ['VERSION = 2'];
 // Undo · revert (commit c3d added feature.txt)
 const RFEAT = ['export function feature() {', '  return true;', '}'];
+// Undo · amend (a file you forgot to include in the last commit)
+const AM_CFG = ['enabled = true'];
 
 // ===================== FORWARD FLOW =====================
 //
@@ -1590,7 +1592,55 @@ const UNDO_SCENARIOS = [
     ],
   },
 
-  // ---------- 7. git revert ----------
+  // ---------- 8. git commit --amend (fix the last commit) ----------
+  {
+    id: 'amend',
+    label: '✎ commit --amend',
+    steps: [
+      {
+        title: "You committed, then spotted a mistake",
+        diff: D('config.txt', 'new', 'forgotten — still untracked', null, AM_CFG),
+        command: "// committed c3d, but forgot to include config.txt",
+        narrative: "You just made commit <code>c3d</code> (\"Add feature\") — then realised <code>config.txt</code> should have been part of it. It's still sitting in your working dir. Rather than add a messy <em>\"oops, forgot a file\"</em> commit on top, you want to fix that one commit. <span class='highlight'>Note: c3d hasn't been pushed yet.</span>",
+        activeArea: "working",
+        litArrow: null,
+        working: [{ type: 'file-untracked', name: 'config.txt', meta: 'untracked' }],
+        staging: [],
+        local: HIST_TWO_LOCAL,
+        remote: HIST_ONE_REMOTE,
+      },
+      {
+        title: "Stage what you forgot",
+        diff: D('config.txt', 'neutral', 'staged, ready to fold in', AM_CFG, AM_CFG),
+        command: "git add config.txt",
+        narrative: "First, stage the change you want to add. <code>config.txt</code> moves into <span class='pill-s'>staging</span> — exactly as if you were about to make an ordinary commit. You can also amend with nothing staged if you only want to fix the message.",
+        activeArea: "staging",
+        litArrow: null,
+        working: [],
+        staging: [{ type: 'file-staged', name: 'config.txt', meta: '+ new' }],
+        local: HIST_TWO_LOCAL,
+        remote: HIST_ONE_REMOTE,
+      },
+      {
+        title: "Fold it into the last commit",
+        diff: D('config.txt', 'new', 'now part of commit c3e', null, AM_CFG),
+        command: "git commit --amend -m \"Add feature\"",
+        narrative: "<span class='pill-l'>--amend</span> <span class='highlight'>replaces</span> the last commit with a new one that includes the staged change — and lets you fix the message at the same time. The old <code>c3d</code> is gone; in its place is <code>c3e</code>, holding the original work <em>plus</em> <code>config.txt</code>. <span class='highlight'>Notice the hash changed</span> (c3d → c3e): an amended commit is a brand-new commit, not an edit of the old one.",
+        danger: "Amend gives the commit a new hash, so only amend commits you haven't pushed yet. Amending an already-pushed commit forces a force-push, which rewrites shared history.",
+        activeArea: "local",
+        litArrow: null,
+        working: [],
+        staging: [],
+        local: [
+          { type: 'commit-local', hash: 'a1b', name: 'Init' },
+          { type: 'commit-local', hash: 'c3e', name: 'Add feature', meta: 'amended' },
+        ],
+        remote: HIST_ONE_REMOTE,
+      },
+    ],
+  },
+
+  // ---------- 9. git revert ----------
   {
     id: 'revert',
     label: 'git revert',
