@@ -1,0 +1,954 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>When git revert Hits a Conflict — Step by Step</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* -------- Design tokens (matched to git-areas-visualizer.html) -------- */
+  :root {
+    --bg:              #0b0f16;
+    --bg-panel:        #11161f;
+    --bg-panel-soft:   #161c27;
+    --border:          #222b3a;
+    --text:            #e8eef7;
+    --text-muted:      #8a94a6;
+    --text-dim:        #5b6578;
+
+    --working:         #22d3ee;
+    --working-glow:    #22d3ee55;
+    --staging:         #f59e0b;
+    --staging-glow:    #f59e0b55;
+    --local:           #34d399;
+    --local-glow:      #34d39955;
+    --remote:          #a78bfa;
+    --remote-glow:     #a78bfa55;
+
+    --danger:          #ef4444;
+    --danger-soft:     #fca5a5;
+    --danger-glow:     #ef444455;
+
+    --font-display:    'Fraunces', Georgia, serif;
+    --font-body:       'Manrope', -apple-system, sans-serif;
+    --font-mono:       'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, #2a2335 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 120%, #2e1a1a 0%, transparent 60%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 48px 20px;
+  }
+  .container { max-width: 1040px; margin: 0 auto; }
+
+  /* -------- Top nav -------- */
+  .topnav { margin-bottom: 22px; }
+  .topnav a {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 100px;
+    transition: all 0.2s;
+  }
+  .topnav a:hover { color: var(--text); border-color: var(--text-dim); }
+
+  /* -------- Header -------- */
+  header { margin-bottom: 28px; text-align: center; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--staging);
+    margin-bottom: 14px;
+    display: inline-block;
+    padding: 6px 14px;
+    border: 1px solid var(--staging);
+    border-radius: 100px;
+    background: var(--staging-glow);
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(30px, 5vw, 48px);
+    line-height: 1.05;
+    margin: 0 0 14px;
+    letter-spacing: -0.02em;
+  }
+  h1 em { font-style: italic; font-weight: 400; color: var(--staging); }
+  header p {
+    color: var(--text-muted);
+    font-size: 17px;
+    margin: 0 auto;
+    max-width: 640px;
+  }
+
+  /* -------- Example picker -------- */
+  .picker {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 18px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .picker-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .picker-options { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+  .chip {
+    padding: 8px 15px;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    background: var(--bg-panel-soft);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.18s;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--staging); color: var(--text); transform: translateY(-1px); }
+  .chip.active {
+    background: var(--staging-glow);
+    border-color: var(--staging);
+    color: var(--staging);
+    box-shadow: 0 0 0 1px var(--staging) inset, 0 3px 12px var(--staging-glow);
+  }
+
+  /* -------- Stage: history rail + status + file viewer -------- */
+  .stage {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 22px 24px;
+    margin-bottom: 20px;
+  }
+
+  .rail-label, .file-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .rail {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .commit-chip {
+    position: relative;
+    flex: 1;
+    min-width: 150px;
+    background: var(--bg-panel-soft);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .commit-chip + .commit-chip { margin-left: 10px; }
+  .commit-chip::before {
+    content: '';
+    position: absolute;
+    left: -10px; top: 50%;
+    width: 10px; height: 1.5px;
+    background: var(--border);
+  }
+  .commit-chip:first-child::before { display: none; }
+  .cc-hash { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--local); }
+  .cc-msg  { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+  .cc-tag {
+    position: absolute;
+    top: -9px; right: 10px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 100px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .commit-chip.role-target { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger) inset; }
+  .commit-chip.role-target .cc-hash { color: var(--danger-soft); }
+  .commit-chip.role-target .cc-tag { color: var(--danger-soft); border-color: var(--danger); }
+  .commit-chip.role-head .cc-tag { color: var(--working); border-color: var(--working); }
+  .commit-chip.role-revert { border-color: var(--local); border-style: dashed; }
+  .commit-chip.role-revert .cc-tag { color: var(--local); border-color: var(--local); }
+
+  /* status bar */
+  .statusbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    margin-bottom: 18px;
+  }
+  .statusbar .sb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+  .statusbar.tone-clean    { color: var(--local);   border-color: var(--local);   background: rgba(52,211,153,0.08); }
+  .statusbar.tone-clean .sb-dot    { background: var(--local); box-shadow: 0 0 8px var(--local); }
+  .statusbar.tone-conflict { color: var(--danger-soft); border-color: var(--danger); background: rgba(239,68,68,0.08); }
+  .statusbar.tone-conflict .sb-dot { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+  .statusbar.tone-pending  { color: var(--staging); border-color: var(--staging); background: rgba(245,158,11,0.08); }
+  .statusbar.tone-pending .sb-dot  { background: var(--staging); box-shadow: 0 0 8px var(--staging); }
+
+  /* file viewer */
+  .fileview {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .fv-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 16px;
+    background: var(--bg-panel-soft);
+    border-bottom: 1px solid var(--border);
+  }
+  .fv-head .fv-icon { font-size: 14px; }
+  .fv-head .fv-name { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text); }
+  .fv-tag {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .fv-tag.tone-clean    { color: var(--local);   border-color: var(--local);   background: rgba(52,211,153,0.1); }
+  .fv-tag.tone-conflict { color: var(--danger-soft); border-color: var(--danger); background: rgba(239,68,68,0.1); }
+  .fv-tag.tone-pending  { color: var(--staging); border-color: var(--staging); background: rgba(245,158,11,0.1); }
+  .fv-tag.tone-gone     { color: var(--danger-soft); border-color: var(--danger); background: rgba(239,68,68,0.1); }
+
+  .fv-body {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.75;
+    padding: 12px 0;
+    background: var(--bg);
+    overflow-x: auto;
+    min-height: 132px;
+  }
+  .fv-line { padding: 0 16px; white-space: pre; }
+  .fv-line.t-ctx    { color: var(--text-muted); }
+  .fv-line.t-add    { background: rgba(52,211,153,0.10); color: var(--local); }
+  .fv-line.t-del    { background: rgba(239,68,68,0.10); color: var(--danger-soft); }
+  .fv-line.t-mk     { color: var(--danger-soft); font-weight: 600; background: rgba(239,68,68,0.08); }
+  .fv-line.t-ours   { background: rgba(34,211,238,0.10); color: var(--working); }
+  .fv-line.t-theirs { background: rgba(167,139,250,0.12); color: var(--remote); }
+  .fv-body.deleted .fv-line { color: var(--text-dim); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .fv-empty {
+    padding: 30px 16px;
+    text-align: center;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  /* git terminal output */
+  .gitout {
+    margin-top: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.65;
+    background: #0a0d12;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--danger);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--danger-soft);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .gitout[hidden] { display: none; }
+
+  /* -------- Info panel -------- */
+  .info-panel {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 24px;
+    align-items: start;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 26px 30px;
+    margin-bottom: 20px;
+  }
+  .step-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .step-badge .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--staging);
+    box-shadow: 0 0 8px var(--staging);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .info-body .command {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    margin-bottom: 14px;
+    color: var(--text);
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .info-body .command .prompt { color: var(--staging); font-weight: 600; }
+  .info-body .command:empty { display: none; }
+  .info-body h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 23px;
+    margin: 4px 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .info-body p { margin: 0; color: var(--text-muted); font-size: 16px; line-height: 1.6; }
+  .info-body .highlight { color: var(--text); font-weight: 600; }
+  .info-body .ours   { color: var(--working); font-weight: 600; }
+  .info-body .theirs { color: var(--remote);  font-weight: 600; }
+  .info-body .danger { color: var(--danger-soft); font-weight: 600; }
+  .info-body code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  /* -------- Controls -------- */
+  .controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 30px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 22px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover:not(:disabled) { background: var(--bg-panel-soft); border-color: var(--text-dim); transform: translateY(-1px); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-primary { background: var(--staging); border-color: var(--staging); color: #2a1c02; }
+  .btn-primary:hover:not(:disabled) { background: #ffb733; border-color: #ffb733; box-shadow: 0 4px 16px var(--staging-glow); }
+  .btn-ghost { background: transparent; color: var(--text-muted); }
+
+  /* -------- Reference / cheat sheet -------- */
+  .reference {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 30px 32px;
+  }
+  .ref-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 24px;
+    margin: 0 0 18px;
+    letter-spacing: -0.01em;
+  }
+  .cheat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  .cheat {
+    background: var(--bg-panel-soft);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .cheat .cheat-cmd {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    display: inline-block;
+    margin-bottom: 9px;
+  }
+  .cheat p { margin: 0; color: var(--text-muted); font-size: 14px; line-height: 1.55; }
+  .cheat code { font-family: var(--font-mono); font-size: 12px; color: var(--text); }
+
+  .ref-steps {
+    counter-reset: rs;
+    list-style: none;
+    margin: 0 0 20px;
+    padding: 0;
+  }
+  .ref-steps li {
+    counter-increment: rs;
+    position: relative;
+    padding: 6px 0 6px 38px;
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .ref-steps li::before {
+    content: counter(rs);
+    position: absolute;
+    left: 0; top: 6px;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--staging-glow);
+    border: 1px solid var(--staging);
+    color: var(--staging);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ref-steps code { font-family: var(--font-mono); font-size: 13px; color: var(--text); background: var(--bg); padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); }
+
+  .keynote {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: rgba(52,211,153,0.06);
+    border: 1px solid rgba(52,211,153,0.3);
+    border-left: 3px solid var(--local);
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .keynote-icon { font-size: 17px; flex-shrink: 0; }
+  .keynote strong { color: var(--text); }
+
+  /* -------- Responsive -------- */
+  @media (max-width: 720px) {
+    .rail { flex-direction: column; }
+    .commit-chip { min-width: 0; }
+    .commit-chip + .commit-chip { margin-left: 0; margin-top: 16px; }
+    .commit-chip::before { left: 50%; top: -10px; width: 1.5px; height: 10px; }
+    .cheat-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    body { padding: 28px 14px; }
+    .info-panel { grid-template-columns: 1fr; padding: 22px; }
+    .info-body h2 { font-size: 19px; }
+    .btn { padding: 10px 16px; font-size: 14px; }
+    .reference { padding: 22px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="topnav">
+    <a href="git-areas-visualizer.html">← Back to the Git Areas lesson</a>
+  </div>
+
+  <header>
+    <div class="eyebrow">Interactive Lesson</div>
+    <h1>When <em>git revert</em> hits a conflict</h1>
+    <p>Revert is the safe way to undo a pushed commit — but sometimes Git can't do it alone. Here's exactly <em>why</em> a conflict happens and how to resolve it, step by step.</p>
+  </header>
+
+  <!-- Example picker -->
+  <div class="picker" role="tablist" aria-label="Example">
+    <div class="picker-label">Example</div>
+    <div class="picker-options" id="picker-options"></div>
+  </div>
+
+  <!-- Stage -->
+  <div class="stage">
+    <div class="rail-label">Commit history</div>
+    <div class="rail" id="rail"></div>
+
+    <div class="statusbar" id="statusbar"><span class="sb-dot"></span><span id="status-text">—</span></div>
+
+    <div class="file-label">The file Git is working on</div>
+    <div class="fileview">
+      <div class="fv-head">
+        <span class="fv-icon">📄</span>
+        <span class="fv-name" id="fv-name">—</span>
+        <span class="fv-tag" id="fv-tag"></span>
+      </div>
+      <div class="fv-body" id="fv-body"></div>
+    </div>
+
+    <div class="gitout" id="gitout" hidden></div>
+  </div>
+
+  <!-- Info panel -->
+  <div class="info-panel">
+    <div class="step-badge"><span class="dot"></span><span id="step-counter">STEP 1 / 1</span></div>
+    <div class="info-body">
+      <div class="command" id="command-line"></div>
+      <h2 id="step-title">—</h2>
+      <p id="step-narrative">—</p>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="prev-btn">← Previous</button>
+    <button class="btn btn-ghost" id="reset-btn">↻ Reset</button>
+    <button class="btn btn-primary" id="next-btn">Next →</button>
+  </div>
+
+  <!-- Reference -->
+  <section class="reference">
+    <h2 class="ref-title">Resolving a revert conflict — the recipe</h2>
+    <ol class="ref-steps">
+      <li>Open the conflicted file and find the <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> … <code>&gt;&gt;&gt;&gt;&gt;&gt;&gt;</code> markers.</li>
+      <li>Choose the correct code and delete the markers and the parts you don't want.</li>
+      <li>Stage the fixed file with <code>git add &lt;file&gt;</code>.</li>
+      <li>Finish the revert with <code>git revert --continue</code>.</li>
+    </ol>
+
+    <div class="cheat-grid">
+      <div class="cheat">
+        <span class="cheat-cmd">git add &lt;file&gt;</span>
+        <p>Marks a conflicted file as resolved, once you've edited it to the version you want.</p>
+      </div>
+      <div class="cheat">
+        <span class="cheat-cmd">git revert --continue</span>
+        <p>Tells Git you're done resolving — it finishes the revert and creates the revert commit.</p>
+      </div>
+      <div class="cheat">
+        <span class="cheat-cmd">git revert --abort</span>
+        <p>Changed your mind? Cancels the whole revert and puts everything back exactly as it was before you started.</p>
+      </div>
+      <div class="cheat">
+        <span class="cheat-cmd">git status</span>
+        <p>Lost? Run this any time — it shows which files are still conflicted and what to do next.</p>
+      </div>
+    </div>
+
+    <div class="keynote">
+      <span class="keynote-icon">✅</span>
+      <span><strong>The big idea:</strong> revert is safe — it never silently throws work away. When two changes collide on the same place, Git simply <strong>stops and asks you to decide</strong>. Don't worry about mastering conflicts here; there's a separate lesson dedicated to resolving them. The takeaway: <strong>revert is safe, but sometimes it needs your help.</strong></span>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// ===================== EXAMPLES =====================
+//
+// Each example is a full step-by-step walkthrough of one kind of revert
+// conflict. A step describes: the commit history (rail), the git "state"
+// (status bar), the file Git is working on (file viewer), any terminal
+// output Git printed, and the explanation.
+//
+// File-viewer line types:
+//   ctx = unchanged context   add/del = added/removed
+//   mk  = conflict marker      ours = current/HEAD block   theirs = revert block
+
+// ---- Example 1 · same line changed twice ----
+const S1_BASE = [
+  { hash: 'a1b', msg: 'Set timeout' },
+  { hash: 'c3d', msg: 'Bump to 60', role: 'target' },
+  { hash: '9f2', msg: 'Bump to 90', role: 'head' },
+];
+const S1_DONE = [
+  { hash: 'a1b', msg: 'Set timeout' },
+  { hash: 'c3d', msg: 'Bump to 60' },
+  { hash: '9f2', msg: 'Bump to 90' },
+  { hash: 'r7a', msg: 'Revert "Bump to 60"', role: 'revert' },
+];
+
+// ---- Example 2 · file deleted later (modify/delete) ----
+const S2_BASE = [
+  { hash: 'a1b', msg: 'Add notes' },
+  { hash: 'c3d', msg: 'Update notes', role: 'target' },
+  { hash: '9f2', msg: 'Remove notes', role: 'head' },
+];
+const S2_DONE = [
+  { hash: 'a1b', msg: 'Add notes' },
+  { hash: 'c3d', msg: 'Update notes' },
+  { hash: '9f2', msg: 'Remove notes' },
+  { hash: 'r7a', msg: 'Revert "Update notes"', role: 'revert' },
+];
+
+const L = (t, s) => ({ t, s });   // line helper
+
+const EXAMPLES = [
+  // ========================= EXAMPLE 1 =========================
+  {
+    id: 'same-line',
+    label: 'Same line changed twice',
+    steps: [
+      {
+        title: "The setup: one line, changed twice",
+        command: "git log --oneline",
+        narrative: "Three commits touched <code>config.txt</code>. <code>a1b</code> set <code>timeout = 30</code>, then <code>c3d</code> bumped it to <code>60</code>, then <code>9f2</code> bumped it again to <code>90</code>. The file right now reads <code>timeout = 90</code>. We want to undo the middle commit, <span class='danger'>c3d</span>.",
+        commits: S1_BASE,
+        status: "working tree clean", statusTone: "clean",
+        file: { name: 'config.txt', tag: 'current', tagTone: 'clean', lines: [
+          L('ctx', '# app configuration'),
+          L('ctx', 'timeout = 90'),
+        ] },
+      },
+      {
+        title: "You revert the middle commit",
+        command: "git revert c3d",
+        narrative: "To undo <code>c3d</code>, Git applies its <span class='highlight'>inverse</span>: change <code>timeout</code> from <code>60</code> back to <code>30</code>. But the line no longer says <code>60</code> — a later commit changed it to <code>90</code>. Git can't safely apply the change, so it <span class='danger'>stops</span>.",
+        commits: S1_BASE,
+        status: "revert in progress — conflict", statusTone: "conflict",
+        file: { name: 'config.txt', tag: 'conflict', tagTone: 'conflict', lines: [
+          L('ctx', '# app configuration'),
+          L('mk',     '<<<<<<< HEAD'),
+          L('ours',   'timeout = 90'),
+          L('mk',     '======='),
+          L('theirs', 'timeout = 30'),
+          L('mk',     '>>>>>>> parent of c3d (Bump to 60)'),
+        ] },
+        gitout: "Auto-merging config.txt\nCONFLICT (content): Merge conflict in config.txt\nerror: could not revert c3d… Bump to 60\nhint: after resolving the conflicts, mark them with\nhint:   \"git add <paths>\", then run \"git revert --continue\".",
+      },
+      {
+        title: "Read the conflict markers",
+        command: "",
+        narrative: "Git keeps <span class='highlight'>both</span> versions in the file. The <span class='ours'>top block (HEAD)</span> is what's there now — <code>timeout = 90</code>. The <span class='theirs'>bottom block</span> is what the revert wanted — <code>timeout = 30</code>. The <code>=======</code> line just separates them. Git is asking: <span class='highlight'>which one should stay?</span>",
+        commits: S1_BASE,
+        status: "revert in progress — conflict", statusTone: "conflict",
+        file: { name: 'config.txt', tag: 'conflict', tagTone: 'conflict', lines: [
+          L('ctx', '# app configuration'),
+          L('mk',     '<<<<<<< HEAD'),
+          L('ours',   'timeout = 90'),
+          L('mk',     '======='),
+          L('theirs', 'timeout = 30'),
+          L('mk',     '>>>>>>> parent of c3d (Bump to 60)'),
+        ] },
+      },
+      {
+        title: "Choose the correct code",
+        command: "// edit config.txt in your editor",
+        narrative: "You decide. Here, <code>9f2</code> deliberately set <code>90</code> after the commit you're reverting, so you keep <code>90</code> and delete the markers and the <code>30</code> line. <span class='highlight'>You could just as well keep <code>30</code></span> — Git doesn't care which you pick, it only needs you to choose.",
+        commits: S1_BASE,
+        status: "conflict resolved — not staged yet", statusTone: "pending",
+        file: { name: 'config.txt', tag: 'edited', tagTone: 'pending', lines: [
+          L('ctx', '# app configuration'),
+          L('ctx', 'timeout = 90'),
+        ] },
+      },
+      {
+        title: "Stage the resolved file",
+        command: "git add config.txt",
+        narrative: "Staging the file is how you tell Git <span class='highlight'>“this conflict is handled.”</span> Nothing is committed yet — you've just marked the file as resolved.",
+        commits: S1_BASE,
+        status: "resolved & staged — ready to continue", statusTone: "pending",
+        file: { name: 'config.txt', tag: 'staged', tagTone: 'pending', lines: [
+          L('ctx', '# app configuration'),
+          L('ctx', 'timeout = 90'),
+        ] },
+      },
+      {
+        title: "Continue the revert",
+        command: "git revert --continue",
+        narrative: "Git finishes the job and records the revert as a <span class='highlight'>new commit</span> (<code>r7a</code>). History stays intact, the conflict is gone, and your working tree is clean again. <span class='highlight'>That's the whole flow.</span>",
+        commits: S1_DONE,
+        status: "revert complete — working tree clean", statusTone: "clean",
+        file: { name: 'config.txt', tag: 'committed in r7a', tagTone: 'clean', lines: [
+          L('ctx', '# app configuration'),
+          L('ctx', 'timeout = 90'),
+        ] },
+      },
+      {
+        title: "Escape hatch: abort instead",
+        command: "git revert --abort",
+        narrative: "If at any point you'd rather not deal with the conflict, <code>git revert --abort</code> cancels the entire revert. The markers vanish, no commit is made, and you're back exactly where you started — <code>timeout = 90</code>, history untouched. <span class='highlight'>No harm done.</span>",
+        commits: S1_BASE,
+        status: "revert aborted — back to where you started", statusTone: "clean",
+        file: { name: 'config.txt', tag: 'current', tagTone: 'clean', lines: [
+          L('ctx', '# app configuration'),
+          L('ctx', 'timeout = 90'),
+        ] },
+      },
+    ],
+  },
+
+  // ========================= EXAMPLE 2 =========================
+  {
+    id: 'modify-delete',
+    label: 'File was deleted later',
+    steps: [
+      {
+        title: "The setup: a file that's now gone",
+        command: "git log --oneline",
+        narrative: "<code>a1b</code> created <code>notes.txt</code>, <code>c3d</code> edited it, then a later commit <code>9f2</code> <span class='danger'>deleted</span> it entirely. The file doesn't exist anymore. You now want to revert the edit in <span class='danger'>c3d</span>.",
+        commits: S2_BASE,
+        status: "working tree clean", statusTone: "clean",
+        file: { name: 'notes.txt', tag: 'deleted in 9f2', tagTone: 'gone', deleted: true, lines: [
+          L('ctx', '# Notes'),
+          L('ctx', '- buy milk'),
+          L('ctx', '- call Sam'),
+        ] },
+      },
+      {
+        title: "You revert the edit",
+        command: "git revert c3d",
+        narrative: "Reverting <code>c3d</code> means undoing its <span class='highlight'>edit</span> to <code>notes.txt</code>. But you can't edit a file that no longer exists. Git hits a <span class='danger'>modify/delete</span> conflict — a different flavor with no <code>&lt;&lt;&lt;&lt;</code> markers, because the clash is about the file's <em>existence</em>, not its lines.",
+        commits: S2_BASE,
+        status: "revert in progress — conflict", statusTone: "conflict",
+        file: { name: 'notes.txt', tag: 'modify/delete', tagTone: 'conflict', lines: [
+          L('ctx', '# Notes'),
+          L('ctx', '- buy milk'),
+          L('ctx', '- call Sam'),
+        ] },
+        gitout: "CONFLICT (modify/delete): notes.txt deleted in HEAD and\nmodified in parent of c3d. Version parent of c3d of\nnotes.txt left in tree.\nerror: could not revert c3d… Update notes",
+      },
+      {
+        title: "Git asks: keep it, or delete it?",
+        command: "git status",
+        narrative: "Git left the reverted version of <code>notes.txt</code> in your working tree and is waiting for a decision: <span class='highlight'>should this file exist or not?</span> Run <code>git status</code> and you'll see it listed as <span class='danger'>deleted by us / modified by them</span>.",
+        commits: S2_BASE,
+        status: "revert in progress — conflict", statusTone: "conflict",
+        file: { name: 'notes.txt', tag: 'modify/delete', tagTone: 'conflict', lines: [
+          L('ctx', '# Notes'),
+          L('ctx', '- buy milk'),
+          L('ctx', '- call Sam'),
+        ] },
+      },
+      {
+        title: "Decide: keep it deleted",
+        command: "git rm notes.txt",
+        narrative: "Removing the file again was intentional, so you agree it should stay gone — <code>git rm notes.txt</code> confirms the deletion and resolves the conflict. <span class='highlight'>If you wanted the file back instead</span>, you'd run <code>git add notes.txt</code> to keep the reverted version.",
+        commits: S2_BASE,
+        status: "conflict resolved — ready to continue", statusTone: "pending",
+        file: { name: 'notes.txt', tag: 'kept deleted', tagTone: 'pending', deleted: true, lines: [
+          L('ctx', '# Notes'),
+          L('ctx', '- buy milk'),
+          L('ctx', '- call Sam'),
+        ] },
+      },
+      {
+        title: "Continue the revert",
+        command: "git revert --continue",
+        narrative: "Git records the revert as a new commit (<code>r7a</code>) and you're done. The file stays deleted, history is intact, and the working tree is clean.",
+        commits: S2_DONE,
+        status: "revert complete — working tree clean", statusTone: "clean",
+        file: { name: 'notes.txt', tag: 'still deleted', tagTone: 'gone', deleted: true, lines: [
+          L('ctx', '# Notes'),
+          L('ctx', '- buy milk'),
+          L('ctx', '- call Sam'),
+        ] },
+      },
+      {
+        title: "Escape hatch: abort instead",
+        command: "git revert --abort",
+        narrative: "As always, <code>git revert --abort</code> cancels everything and restores the exact state before you started — no revert commit, no half-finished mess. <span class='highlight'>Revert never traps you.</span>",
+        commits: S2_BASE,
+        status: "revert aborted — back to where you started", statusTone: "clean",
+        file: { name: 'notes.txt', tag: 'deleted in 9f2', tagTone: 'gone', deleted: true, lines: [
+          L('ctx', '# Notes'),
+          L('ctx', '- buy milk'),
+          L('ctx', '- call Sam'),
+        ] },
+      },
+    ],
+  },
+];
+
+// ===================== STATE =====================
+let currentEx = 0;
+let currentStep = 0;
+const steps = () => EXAMPLES[currentEx].steps;
+
+// ===================== ELEMENTS =====================
+const rail       = document.getElementById('rail');
+const statusbar  = document.getElementById('statusbar');
+const statusText = document.getElementById('status-text');
+const fvName     = document.getElementById('fv-name');
+const fvTag      = document.getElementById('fv-tag');
+const fvBody     = document.getElementById('fv-body');
+const gitout     = document.getElementById('gitout');
+
+// ===================== PICKER =====================
+const pickerOptions = document.getElementById('picker-options');
+EXAMPLES.forEach((ex, i) => {
+  const chip = document.createElement('button');
+  chip.className = 'chip' + (i === 0 ? ' active' : '');
+  chip.setAttribute('role', 'tab');
+  chip.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+  chip.textContent = ex.label;
+  chip.addEventListener('click', () => {
+    if (i === currentEx) return;
+    currentEx = i; currentStep = 0;
+    pickerOptions.querySelectorAll('.chip').forEach((c, j) => {
+      c.classList.toggle('active', j === i);
+      c.setAttribute('aria-selected', j === i ? 'true' : 'false');
+    });
+    render();
+  });
+  pickerOptions.appendChild(chip);
+});
+
+// ===================== RENDER =====================
+function renderRail(commits) {
+  rail.innerHTML = '';
+  commits.forEach(c => {
+    const chip = document.createElement('div');
+    chip.className = 'commit-chip' + (c.role ? ' role-' + c.role : '');
+    const hash = document.createElement('span');
+    hash.className = 'cc-hash'; hash.textContent = c.hash;
+    const msg = document.createElement('span');
+    msg.className = 'cc-msg'; msg.textContent = c.msg;
+    chip.appendChild(hash); chip.appendChild(msg);
+    const tagText = c.role === 'target' ? 'reverting'
+                  : c.role === 'head'   ? 'HEAD'
+                  : c.role === 'revert' ? 'new' : '';
+    if (tagText) {
+      const tag = document.createElement('span');
+      tag.className = 'cc-tag'; tag.textContent = tagText;
+      chip.appendChild(tag);
+    }
+    rail.appendChild(chip);
+  });
+}
+
+function renderFile(file) {
+  fvName.textContent = file.name;
+  fvTag.textContent = file.tag || '';
+  fvTag.className = 'fv-tag tone-' + (file.tagTone || 'clean');
+  fvBody.className = 'fv-body' + (file.deleted ? ' deleted' : '');
+  fvBody.innerHTML = '';
+  if (!file.lines || file.lines.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'fv-empty';
+    e.textContent = '— file does not exist —';
+    fvBody.appendChild(e);
+    return;
+  }
+  file.lines.forEach(ln => {
+    const row = document.createElement('div');
+    row.className = 'fv-line t-' + ln.t;
+    row.textContent = ln.s;
+    fvBody.appendChild(row);
+  });
+}
+
+function render() {
+  const all = steps();
+  const step = all[currentStep];
+
+  renderRail(step.commits);
+
+  statusbar.className = 'statusbar tone-' + step.statusTone;
+  statusText.textContent = step.status;
+
+  renderFile(step.file);
+
+  if (step.gitout) { gitout.textContent = step.gitout; gitout.hidden = false; }
+  else { gitout.hidden = true; }
+
+  document.getElementById('step-counter').textContent = `STEP ${currentStep + 1} / ${all.length}`;
+  document.getElementById('step-title').textContent = step.title;
+  document.getElementById('step-narrative').innerHTML = step.narrative;
+
+  const cmd = document.getElementById('command-line');
+  if (step.command) {
+    if (step.command.startsWith('//')) {
+      cmd.innerHTML = `<span style="color: var(--text-dim); font-style: italic;">${step.command}</span>`;
+    } else {
+      cmd.innerHTML = `<span class="prompt">$</span> ${step.command}`;
+    }
+  } else { cmd.innerHTML = ''; }
+
+  document.getElementById('prev-btn').disabled = currentStep === 0;
+  const nextBtn = document.getElementById('next-btn');
+  nextBtn.disabled = currentStep === all.length - 1;
+  nextBtn.innerHTML = currentStep === all.length - 1 ? '✓ Done' : 'Next →';
+}
+
+// ===================== CONTROLS =====================
+document.getElementById('next-btn').addEventListener('click', () => {
+  if (currentStep < steps().length - 1) { currentStep++; render(); }
+});
+document.getElementById('prev-btn').addEventListener('click', () => {
+  if (currentStep > 0) { currentStep--; render(); }
+});
+document.getElementById('reset-btn').addEventListener('click', () => { currentStep = 0; render(); });
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); document.getElementById('next-btn').click(); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); document.getElementById('prev-btn').click(); }
+  if (e.key === 'r' || e.key === 'R') { document.getElementById('reset-btn').click(); }
+});
+
+render();
+</script>
+
+</body>
+</html>

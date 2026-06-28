@@ -1681,7 +1681,7 @@ const UNDO_SCENARIOS = [
         title: "Push the revert",
         diff: D('feature.txt', 'delete', 'gone on the server too', RFEAT, null),
         command: "git push",
-        narrative: "Push <code>r9x</code> to the server. Now everyone gets the fix as a normal commit — no broken clones, no rewritten history. <span class='highlight'>git revert is always the safe choice for shared branches</span> like <code>main</code>.",
+        narrative: "Push <code>r9x</code> to the server. Now everyone gets the fix as a normal commit — no broken clones, no rewritten history. <span class='highlight'>git revert is always the safe choice for shared branches</span> like <code>main</code>.<br><a href='git-revert-conflicts.html' style='display:inline-block;margin-top:10px;color:var(--remote);font-weight:600;text-decoration:none;'>⚠️ What if revert hits a conflict? See the step-by-step lesson →</a>",
         activeArea: "remote",
         litArrow: "revert",
         working: [], staging: [],
