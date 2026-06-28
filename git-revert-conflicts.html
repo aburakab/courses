@@ -158,6 +158,14 @@
     color: var(--text-dim);
     margin-bottom: 10px;
   }
+  .rail-hint {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--staging);
+  }
   .rail {
     display: flex;
     align-items: stretch;
@@ -176,7 +184,15 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
   }
+  .commit-chip:hover { transform: translateY(-2px); border-color: var(--text-dim); }
+  .commit-chip.selected {
+    border-color: var(--staging);
+    box-shadow: 0 0 0 1px var(--staging) inset, 0 4px 14px var(--staging-glow);
+  }
+  .commit-chip.selected .cc-hash { color: var(--staging); }
   .commit-chip + .commit-chip { margin-left: 10px; }
   .commit-chip::before {
     content: '';
@@ -262,6 +278,22 @@
   .fv-tag.tone-conflict { color: var(--danger-soft); border-color: var(--danger); background: rgba(239,68,68,0.1); }
   .fv-tag.tone-pending  { color: var(--staging); border-color: var(--staging); background: rgba(245,158,11,0.1); }
   .fv-tag.tone-gone     { color: var(--danger-soft); border-color: var(--danger); background: rgba(239,68,68,0.1); }
+  .fv-tag.tone-inspect  { color: var(--staging); border-color: var(--staging); background: rgba(245,158,11,0.1); }
+  .fv-back {
+    margin-left: 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 4px 9px;
+    border-radius: 100px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .fv-back:hover { color: var(--text); border-color: var(--text-dim); }
+  .fv-back[hidden] { display: none; }
 
   .fv-body {
     font-family: var(--font-mono);
@@ -533,7 +565,7 @@
 
   <!-- Stage -->
   <div class="stage">
-    <div class="rail-label">Commit history</div>
+    <div class="rail-label">Commit history <span class="rail-hint">— 👆 click a commit to see what it changed</span></div>
     <div class="rail" id="rail"></div>
 
     <div class="statusbar" id="statusbar"><span class="sb-dot"></span><span id="status-text">—</span></div>
@@ -544,6 +576,7 @@
         <span class="fv-icon">📄</span>
         <span class="fv-name" id="fv-name">—</span>
         <span class="fv-tag" id="fv-tag"></span>
+        <button class="fv-back" id="fv-back" hidden>← back to walkthrough</button>
       </div>
       <div class="fv-body" id="fv-body"></div>
     </div>
@@ -616,30 +649,39 @@
 //   ctx = unchanged context   add/del = added/removed
 //   mk  = conflict marker      ours = current/HEAD block   theirs = revert block
 
+// File contents at various points (for the per-commit diffs)
+const CFG30 = ['# app configuration', 'timeout = 30'];
+const CFG60 = ['# app configuration', 'timeout = 60'];
+const CFG90 = ['# app configuration', 'timeout = 90'];
+const NOTES1 = ['# Notes', '- buy milk'];
+const NOTES2 = ['# Notes', '- buy milk', '- call Sam'];
+
+// Each commit carries `diff: {before, after}` describing what it did to the
+// example's file (null = the file did not exist before / after that commit).
 // ---- Example 1 · same line changed twice ----
 const S1_BASE = [
-  { hash: 'a1b', msg: 'Set timeout' },
-  { hash: 'c3d', msg: 'Bump to 60', role: 'target' },
-  { hash: '9f2', msg: 'Bump to 90', role: 'head' },
+  { hash: 'a1b', msg: 'Set timeout', diff: { before: null,  after: CFG30 } },
+  { hash: 'c3d', msg: 'Bump to 60', role: 'target', diff: { before: CFG30, after: CFG60 } },
+  { hash: '9f2', msg: 'Bump to 90', role: 'head',   diff: { before: CFG60, after: CFG90 } },
 ];
 const S1_DONE = [
-  { hash: 'a1b', msg: 'Set timeout' },
-  { hash: 'c3d', msg: 'Bump to 60' },
-  { hash: '9f2', msg: 'Bump to 90' },
-  { hash: 'r7a', msg: 'Revert "Bump to 60"', role: 'revert' },
+  { hash: 'a1b', msg: 'Set timeout', diff: { before: null,  after: CFG30 } },
+  { hash: 'c3d', msg: 'Bump to 60',  diff: { before: CFG30, after: CFG60 } },
+  { hash: '9f2', msg: 'Bump to 90',  diff: { before: CFG60, after: CFG90 } },
+  { hash: 'r7a', msg: 'Revert "Bump to 60"', role: 'revert', diff: { before: CFG90, after: CFG90 } },
 ];
 
 // ---- Example 2 · file deleted later (modify/delete) ----
 const S2_BASE = [
-  { hash: 'a1b', msg: 'Add notes' },
-  { hash: 'c3d', msg: 'Update notes', role: 'target' },
-  { hash: '9f2', msg: 'Remove notes', role: 'head' },
+  { hash: 'a1b', msg: 'Add notes', diff: { before: null,   after: NOTES1 } },
+  { hash: 'c3d', msg: 'Update notes', role: 'target', diff: { before: NOTES1, after: NOTES2 } },
+  { hash: '9f2', msg: 'Remove notes', role: 'head',   diff: { before: NOTES2, after: null } },
 ];
 const S2_DONE = [
-  { hash: 'a1b', msg: 'Add notes' },
-  { hash: 'c3d', msg: 'Update notes' },
-  { hash: '9f2', msg: 'Remove notes' },
-  { hash: 'r7a', msg: 'Revert "Update notes"', role: 'revert' },
+  { hash: 'a1b', msg: 'Add notes',    diff: { before: null,   after: NOTES1 } },
+  { hash: 'c3d', msg: 'Update notes', diff: { before: NOTES1, after: NOTES2 } },
+  { hash: '9f2', msg: 'Remove notes', diff: { before: NOTES2, after: null } },
+  { hash: 'r7a', msg: 'Revert "Update notes"', role: 'revert', diff: { before: null, after: null } },
 ];
 
 const L = (t, s) => ({ t, s });   // line helper
@@ -649,6 +691,7 @@ const EXAMPLES = [
   {
     id: 'same-line',
     label: 'Same line changed twice',
+    file: 'config.txt',
     steps: [
       {
         title: "The setup: one line, changed twice",
@@ -743,6 +786,7 @@ const EXAMPLES = [
   {
     id: 'modify-delete',
     label: 'File was deleted later',
+    file: 'notes.txt',
     steps: [
       {
         title: "The setup: a file that's now gone",
@@ -824,6 +868,7 @@ const EXAMPLES = [
 // ===================== STATE =====================
 let currentEx = 0;
 let currentStep = 0;
+let inspecting = null;   // hash of a commit being inspected, or null (walkthrough)
 const steps = () => EXAMPLES[currentEx].steps;
 
 // ===================== ELEMENTS =====================
@@ -833,7 +878,29 @@ const statusText = document.getElementById('status-text');
 const fvName     = document.getElementById('fv-name');
 const fvTag      = document.getElementById('fv-tag');
 const fvBody     = document.getElementById('fv-body');
+const fvBack     = document.getElementById('fv-back');
 const gitout     = document.getElementById('gitout');
+
+fvBack.addEventListener('click', () => { inspecting = null; render(); });
+
+// Longest-common-subsequence diff over small line arrays.
+function diffLines(before, after) {
+  const a = before || [], b = after || [];
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j])                     { out.push({ t: 'ctx', s: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: 'del', s: a[i] }); i++; }
+    else                                   { out.push({ t: 'add', s: b[j] }); j++; }
+  }
+  while (i < n) out.push({ t: 'del', s: a[i++] });
+  while (j < m) out.push({ t: 'add', s: b[j++] });
+  return out;
+}
 
 // ===================== PICKER =====================
 const pickerOptions = document.getElementById('picker-options');
@@ -845,7 +912,7 @@ EXAMPLES.forEach((ex, i) => {
   chip.textContent = ex.label;
   chip.addEventListener('click', () => {
     if (i === currentEx) return;
-    currentEx = i; currentStep = 0;
+    currentEx = i; currentStep = 0; inspecting = null;
     pickerOptions.querySelectorAll('.chip').forEach((c, j) => {
       c.classList.toggle('active', j === i);
       c.setAttribute('aria-selected', j === i ? 'true' : 'false');
@@ -860,7 +927,8 @@ function renderRail(commits) {
   rail.innerHTML = '';
   commits.forEach(c => {
     const chip = document.createElement('div');
-    chip.className = 'commit-chip' + (c.role ? ' role-' + c.role : '');
+    chip.className = 'commit-chip' + (c.role ? ' role-' + c.role : '')
+                  + (inspecting === c.hash ? ' selected' : '');
     const hash = document.createElement('span');
     hash.className = 'cc-hash'; hash.textContent = c.hash;
     const msg = document.createElement('span');
@@ -874,7 +942,44 @@ function renderRail(commits) {
       tag.className = 'cc-tag'; tag.textContent = tagText;
       chip.appendChild(tag);
     }
+    chip.addEventListener('click', () => {
+      inspecting = (inspecting === c.hash) ? null : c.hash;
+      render();
+    });
     rail.appendChild(chip);
+  });
+}
+
+// Show what a single commit changed in the example's file.
+function renderCommitDiff(commit) {
+  const ex = EXAMPLES[currentEx];
+  const d = commit.diff || { before: null, after: null };
+  fvName.textContent = ex.file;
+  fvBack.hidden = false;
+
+  let label;
+  if (d.before === null && d.after === null) label = 'no change';
+  else if (d.before === null)                label = 'created here';
+  else if (d.after === null)                 label = 'deleted here';
+  else                                       label = 'modified here';
+  fvTag.textContent = `${commit.hash} · ${label}`;
+  fvTag.className = 'fv-tag tone-inspect';
+
+  fvBody.className = 'fv-body';
+  fvBody.innerHTML = '';
+
+  if (d.before === null && d.after === null) {
+    const e = document.createElement('div');
+    e.className = 'fv-empty';
+    e.textContent = 'This commit made no change to ' + ex.file + '.';
+    fvBody.appendChild(e);
+    return;
+  }
+  diffLines(d.before, d.after).forEach(ln => {
+    const row = document.createElement('div');
+    row.className = 'fv-line t-' + ln.t;
+    row.textContent = (ln.t === 'add' ? '+ ' : ln.t === 'del' ? '- ' : '  ') + ln.s;
+    fvBody.appendChild(row);
   });
 }
 
@@ -905,13 +1010,26 @@ function render() {
 
   renderRail(step.commits);
 
-  statusbar.className = 'statusbar tone-' + step.statusTone;
-  statusText.textContent = step.status;
+  // If a commit is being inspected, the file viewer shows that commit's diff
+  // and the status bar explains we've stepped out of the walkthrough.
+  const inspected = inspecting
+    ? step.commits.find(c => c.hash === inspecting)
+    : null;
+  if (inspecting && !inspected) inspecting = null;   // commit not in this step's history
 
-  renderFile(step.file);
-
-  if (step.gitout) { gitout.textContent = step.gitout; gitout.hidden = false; }
-  else { gitout.hidden = true; }
+  if (inspected) {
+    statusbar.className = 'statusbar tone-pending';
+    statusText.textContent = `viewing commit ${inspected.hash} — ${inspected.msg}`;
+    renderCommitDiff(inspected);
+    gitout.hidden = true;
+  } else {
+    statusbar.className = 'statusbar tone-' + step.statusTone;
+    statusText.textContent = step.status;
+    fvBack.hidden = true;
+    renderFile(step.file);
+    if (step.gitout) { gitout.textContent = step.gitout; gitout.hidden = false; }
+    else { gitout.hidden = true; }
+  }
 
   document.getElementById('step-counter').textContent = `STEP ${currentStep + 1} / ${all.length}`;
   document.getElementById('step-title').textContent = step.title;
@@ -934,12 +1052,12 @@ function render() {
 
 // ===================== CONTROLS =====================
 document.getElementById('next-btn').addEventListener('click', () => {
-  if (currentStep < steps().length - 1) { currentStep++; render(); }
+  if (currentStep < steps().length - 1) { inspecting = null; currentStep++; render(); }
 });
 document.getElementById('prev-btn').addEventListener('click', () => {
-  if (currentStep > 0) { currentStep--; render(); }
+  if (currentStep > 0) { inspecting = null; currentStep--; render(); }
 });
-document.getElementById('reset-btn').addEventListener('click', () => { currentStep = 0; render(); });
+document.getElementById('reset-btn').addEventListener('click', () => { inspecting = null; currentStep = 0; render(); });
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === 'ArrowRight') { e.preventDefault(); document.getElementById('next-btn').click(); }
