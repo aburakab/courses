@@ -24,7 +24,7 @@ Thank you to all the students who have contributed and added their names to this
 | <img src="https://github.com/ZiyadAlbokhari.png" width="40" style="border-radius: 50%;"> | **Ziyad Albokhari** | [![GitHub](https://img.shields.io/badge/GitHub-24292e?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ZiyadAlbokhari) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/ziyadd/) |
 | <img src="https://github.com/MohammedShkokany.png" width="40" style="border-radius: 50%;"> | **Mohammed Shkokany** | [![GitHub](https://img.shields.io/badge/GitHub-24292e?style=for-the-badge&logo=github&logoColor=white)](https://github.com/MohammedShkokany) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mohammed-shkokany-69b501300/) |
 | <img src="https://github.com/ali-talal-ibrahem.png" width="40" style="border-radius: 50%;"> | **Ali Talal Ibrahem** | [![GitHub](https://img.shields.io/badge/GitHub-24292e?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ali-talal-ibrahem) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://linkedin.com/in/ali-talal-ibrahem) |
-
+| <img src="https://github.com/ix2mr.png" width="40" style="border-radius: 50%;"> | **ix2mr** | [![GitHub](https://img.shields.io/badge/GitHub-24292e?style=for-the-badge&logo=github&logoColor=white)](https://github.com/ix2mr) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/amr-khalid-al-qadasi-8395a5384/) |
 ---
 
 <p align="left">
